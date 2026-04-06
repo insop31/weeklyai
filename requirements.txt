@@ -1,0 +1,29 @@
+# WeeklyAI — requirements.txt
+# Install with: pip install -r requirements.txt
+
+# ── Core Flask ──────────────────────────────────────────
+Flask>=3.0.0                  # web framework
+Flask-Login>=0.6.3            # user session management
+Flask-SQLAlchemy>=3.1.1       # ORM integration with Flask
+
+# ── Database ─────────────────────────────────────────────
+PyMySQL>=1.1.0                # pure-Python MySQL driver
+SQLAlchemy>=2.0.0             # core ORM (installed with Flask-SQLAlchemy)
+cryptography>=42.0.0          # required by PyMySQL for auth plugins
+
+# ── Auth & Security ──────────────────────────────────────
+Werkzeug>=3.0.0               # password hashing (generate/check_password_hash)
+
+# ── Machine Learning ─────────────────────────────────────
+scikit-learn>=1.4.0           # LogisticRegression + DecisionTreeClassifier
+numpy>=1.26.0                 # array operations for ML features
+pandas>=2.2.0                 # DataFrame for activity log processing
+matplotlib>=3.8.0             # backend chart export (PNG for reports)
+joblib>=1.3.0                 # model serialization (save/load trained models)
+
+# ── Environment & Config ─────────────────────────────────
+python-dotenv>=1.0.0          # load .env variables into os.environ
+
+# ── Utilities ────────────────────────────────────────────
+email-validator>=2.1.0        # server-side email format validation
+python-dateutil>=2.9.0        # robust datetime parsing for task times

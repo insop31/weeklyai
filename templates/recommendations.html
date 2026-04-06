@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+{% block title %}AI Recommendations - WeeklyAI{% endblock %}
+{% block page_title %}Smart Schedule{% endblock %}
+
+{% block content %}
+
+{% if burnout_warning %}
+<div class="insight-banner insight-banner--warning">
+  <strong>Burnout detection:</strong> {{ burnout_warning }}
+</div>
+{% endif %}
+
+<div class="ai-banner">
+  <div class="ai-banner-icon">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+      <path d="M10 2l2.4 4.8 5.3.8-3.8 3.7.9 5.2L10 14l-4.8 2.5.9-5.2L2.3 7.6l5.3-.8z"
+            stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+    </svg>
+  </div>
+  <div class="ai-banner-text">
+    {% if recommendations %}
+      {% set top = recommendations[0] %}
+      {% if top.probability >= 0.8 %}
+        You're in great shape! Start with <strong>{{ top.task.title }}</strong> - {{ (top.probability * 100)|int }}% likely to complete on time.
+      {% elif top.probability >= 0.5 %}
+        Good momentum. Tackle <strong>{{ top.task.title }}</strong> first - best chance of success today.
+      {% else %}
+        Some tasks need attention. AI has sorted your list - focus on the top item first.
+      {% endif %}
+    {% else %}
+      No pending tasks right now. Add some tasks to get AI scheduling recommendations.
+    {% endif %}
+  </div>
+</div>
+
+{% if recommendations %}
+<div class="rec-list">
+  {% for rec in recommendations %}
+  <div class="rec-card {% if rec.reschedule %}rec-card--missed{% endif %}">
+    <div class="rec-rank">{{ loop.index }}</div>
+
+    <div class="rec-body">
+      <div class="rec-top-row">
+        <span class="rec-title">{{ rec.task.title }}</span>
+        <div class="rec-badges">
+          <span class="cat-badge cat-{{ rec.task.category|lower }}">{{ rec.task.category }}</span>
+          <span class="pri-badge pri-{{ rec.task.priority|lower }}">{{ rec.task.priority }}</span>
+          {% if rec.reschedule %}
+          <span class="missed-badge">Missed - reschedule</span>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="prob-bar-wrap">
+        <div class="prob-bar-track">
+          <div class="prob-bar-fill" data-prob="{{ rec.probability }}"></div>
+        </div>
+        <span class="prob-label">{{ (rec.probability * 100)|int }}% likely</span>
+      </div>
+
+      <div class="rec-meta-row">
+        <div class="rec-meta-item">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <circle cx="6" cy="6" r="5" stroke="currentColor" stroke-width="1.2"/>
+            <path d="M6 3v3l2 2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+          </svg>
+          Best slot: <strong>{{ rec.suggested_slot }}</strong>
+        </div>
+
+        {% if rec.task.deadline %}
+        <div class="rec-meta-item">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <rect x="1" y="2" width="10" height="9" rx="1.5" stroke="currentColor" stroke-width="1.2"/>
+            <path d="M1 5h10M4 1v2M8 1v2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+          </svg>
+          Due: {{ rec.task.deadline.strftime('%a %d %b, %H:%M') }}
+        </div>
+        {% endif %}
+
+        {% if rec.task.estimated_time %}
+        <div class="rec-meta-item">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <path d="M2 6h8M6 2v8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+          </svg>
+          Est. {{ rec.task.estimated_time }}h
+        </div>
+        {% endif %}
+
+        <div class="rec-meta-item">
+          Smart priority: <strong>{{ rec.smart_priority }}/100</strong>
+        </div>
+      </div>
+
+      {% if rec.subtasks %}
+      <div class="subtask-list">
+        {% for step in rec.subtasks %}
+        <div class="subtask-item">{{ step }}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="rec-actions">
+      <button class="rec-btn rec-btn--done" onclick="markDone('{{ rec.task.id }}')">Mark done</button>
+      {% if rec.reschedule %}
+      <button class="rec-btn rec-btn--reschedule" onclick="smartReschedule('{{ rec.task.id }}')">Reschedule</button>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{% if weekly_reflection %}
+<div class="reflection-card">
+  <div class="chart-card-title">AI Weekly Reflection</div>
+  <div class="reflection-list">
+    {% for line in weekly_reflection %}
+    <div class="reflection-item">{{ line }}</div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{% else %}
+<div class="empty-state">
+  <div class="empty-icon">
+    <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+      <circle cx="24" cy="24" r="20" stroke="currentColor" stroke-width="1.5" opacity="0.3"/>
+      <path d="M24 16v8l4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    </svg>
+  </div>
+  <p class="empty-title">No pending tasks</p>
+  <p class="empty-sub">Add tasks to get AI-powered scheduling recommendations.</p>
+  <button class="btn-add" onclick="openModal()">
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+      <path d="M6 1v10M1 6h10" stroke="white" stroke-width="1.8" stroke-linecap="round"/>
+    </svg>
+    Add your first task
+  </button>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  async function markDone(taskId) {
+    await fetch(`/update_task/${taskId}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({status: 'Completed'}),
+    });
+    location.reload();
+  }
+
+  async function smartReschedule(taskId) {
+    await fetch(`/smart_reschedule/${taskId}`, {method: 'POST'});
+    location.reload();
+  }
+
+  document.querySelectorAll('.prob-bar-fill').forEach(el => {
+    const prob = parseFloat(el.dataset.prob);
+    el.style.width = (prob * 100) + '%';
+  });
+</script>
+{% endblock %}

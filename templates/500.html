@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Server error — WeeklyAI</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}"/>
+</head>
+<body class="auth-body">
+  <div class="error-card">
+    <div class="error-code">500</div>
+    <p class="error-title">Something went wrong</p>
+    <p class="error-sub">An unexpected error occurred on the server. Please try again in a moment.</p>
+    <a href="{{ url_for('main.dashboard') }}" class="btn-auth" style="display:inline-block;text-decoration:none;text-align:center;">
+      Back to dashboard
+    </a>
+  </div>
+</body>
+</html>

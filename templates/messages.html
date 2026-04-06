@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Messages - WeeklyAI{% endblock %}
+{% block page_title %}Messages{% endblock %}
+
+{% block content %}
+<div class="panel-card message-intro">
+  <div class="chart-card-title">Recent activity</div>
+  <div class="chart-card-sub">This view uses your task activity log so the Messages tab opens a real page instead of a dead link.</div>
+</div>
+
+{% if weekly_reflection %}
+<div class="reflection-card">
+  <div class="chart-card-title">Weekly Reflection</div>
+  <div class="reflection-list">
+    {% for line in weekly_reflection %}
+    <div class="reflection-item">{{ line }}</div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{% if logs %}
+<div class="message-list">
+  {% for log in logs %}
+  <article class="message-row">
+    <div class="message-avatar">{{ current_user.name[0].upper() }}</div>
+    <div class="message-body">
+      <div class="message-title">Task activity recorded</div>
+      <div class="message-text">
+        {% if log.task %}
+          {{ log.task.title }} was logged on {{ log.completion_time.strftime('%b %d, %Y at %I:%M %p') if log.completion_time else 'an unknown time' }}.
+        {% else %}
+          An activity entry was recorded on {{ log.completion_time.strftime('%b %d, %Y at %I:%M %p') if log.completion_time else 'an unknown time' }}.
+        {% endif %}
+      </div>
+    </div>
+  </article>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+  <div class="empty-title">No messages yet</div>
+  <div class="empty-sub">Task updates and activity history will appear here after you start completing work.</div>
+</div>
+{% endif %}
+{% endblock %}

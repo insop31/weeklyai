@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Tasks - WeeklyAI{% endblock %}
+{% block page_title %}All Tasks{% endblock %}
+
+{% block content %}
+{% set scheduled = tasks|selectattr('start_time')|list|length %}
+{% set completed = tasks|selectattr('status', 'equalto', 'Completed')|list|length %}
+{% set pending = tasks|rejectattr('status', 'equalto', 'Completed')|list|length %}
+
+<div class="stats-row">
+  <div class="stat-card">
+    <span class="stat-label">Total tasks</span>
+    <span class="stat-value">{{ tasks|length }}</span>
+    <span class="stat-sub">across your workspace</span>
+  </div>
+  <div class="stat-card stat-card--lime">
+    <span class="stat-label">Scheduled</span>
+    <span class="stat-value">{{ scheduled }}</span>
+    <span class="stat-sub">with a calendar time</span>
+  </div>
+  <div class="stat-card stat-card--purple">
+    <span class="stat-label">Completed</span>
+    <span class="stat-value">{{ completed }}</span>
+    <span class="stat-sub">finished tasks</span>
+  </div>
+  <div class="stat-card stat-card--warn">
+    <span class="stat-label">Open</span>
+    <span class="stat-value">{{ pending }}</span>
+    <span class="stat-sub">still needing attention</span>
+  </div>
+  <div class="stat-card stat-card--purple">
+    <span class="stat-label">Points</span>
+    <span class="stat-value">{{ gamification.points }}</span>
+    <span class="stat-sub">{{ gamification.badges|join(', ') }}</span>
+  </div>
+</div>
+
+{% if tasks %}
+<div class="task-list">
+  {% for task in tasks %}
+  <article class="task-row">
+    <div class="task-row-main">
+      <div class="task-row-top">
+        <span class="task-row-title">{{ task.title }}</span>
+        <span class="cat-badge cat-{{ (task.category or 'work')|lower }}">{{ task.category or 'Work' }}</span>
+        <span class="pri-badge pri-{{ (task.priority or 'medium')|lower }}">{{ task.priority or 'Medium' }}</span>
+        {% for tag in task.tags %}
+        <span class="badge-pill badge-pill--soft">{{ tag.name }}</span>
+        {% endfor %}
+      </div>
+      <div class="task-row-meta">
+        <span class="task-meta-item">Status: <strong>{{ task.status }}</strong></span>
+        <span class="task-meta-item">Start: <strong>{{ task.start_time.strftime('%b %d, %I:%M %p') if task.start_time else 'Unscheduled' }}</strong></span>
+        <span class="task-meta-item">End: <strong>{{ task.end_time.strftime('%b %d, %I:%M %p') if task.end_time else 'Not set' }}</strong></span>
+      </div>
+    </div>
+  </article>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+  <div class="empty-title">No tasks yet</div>
+  <div class="empty-sub">Create your first task from the Add Task button and it will show up here.</div>
+</div>
+{% endif %}
+{% endblock %}

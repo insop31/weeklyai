@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}Analytics - WeeklyAI{% endblock %}
+{% block page_title %}Your Insights{% endblock %}
+
+{% block head %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block content %}
+{% set total = completed + pending + missed %}
+{% set rate = ((completed / total) * 100)|int if total > 0 else 0 %}
+{% set habit_avg = (habit_summaries | map(attribute='percentage') | list | sum / (habit_summaries|length))|int if habit_summaries else 0 %}
+
+<div class="stats-row">
+  <div class="stat-card">
+    <span class="stat-label">Total tasks</span>
+    <span class="stat-value">{{ total }}</span>
+    <span class="stat-sub">this week</span>
+  </div>
+  <div class="stat-card stat-card--lime">
+    <span class="stat-label">Completed</span>
+    <span class="stat-value">{{ completed }}</span>
+    <span class="stat-sub">on time</span>
+  </div>
+  <div class="stat-card">
+    <span class="stat-label">Pending</span>
+    <span class="stat-value">{{ pending }}</span>
+    <span class="stat-sub">still active</span>
+  </div>
+  <div class="stat-card stat-card--purple">
+    <span class="stat-label">Most productive day</span>
+    <span class="stat-value stat-value--sm">{{ most_productive }}</span>
+    <span class="stat-sub">based on completions</span>
+  </div>
+  <div class="stat-card stat-card--warn">
+    <span class="stat-label">Habit consistency</span>
+    <span class="stat-value">{{ habit_avg }}%</span>
+    <span class="stat-sub">weekly completion</span>
+  </div>
+</div>
+
+{% if burnout_warning %}
+<div class="insight-banner insight-banner--warning">
+  <strong>Burnout detection:</strong> {{ burnout_warning }}
+</div>
+{% endif %}
+
+{% if weekly_reflection %}
+<div class="reflection-card">
+  <div class="chart-card-title">AI Weekly Reflection</div>
+  <div class="reflection-list">
+    {% for line in weekly_reflection %}
+    <div class="reflection-item">{{ line }}</div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<div class="charts-grid charts-grid--rich">
+  <div class="chart-card chart-card--sm">
+    <div class="chart-card-header">
+      <span class="chart-card-title">Completion breakdown</span>
+    </div>
+    <div class="donut-wrap">
+      <canvas id="donutChart" width="200" height="200"></canvas>
+      <div class="donut-center">
+        <span class="donut-pct">{{ rate }}%</span>
+        <span class="donut-sub">done</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="chart-card chart-card--md">
+    <div class="chart-card-header">
+      <span class="chart-card-title">Tasks by day of week</span>
+      <span class="chart-card-sub">completed tasks per day</span>
+    </div>
+    <canvas id="barChart" height="200"></canvas>
+  </div>
+
+  <div class="chart-card chart-card--wide">
+    <div class="chart-card-header">
+      <span class="chart-card-title">Progress graph</span>
+      <span class="chart-card-sub">completion trend over recent weeks</span>
+    </div>
+    <canvas id="lineChart" height="160"></canvas>
+  </div>
+
+  <div class="chart-card chart-card--md">
+    <div class="chart-card-header">
+      <span class="chart-card-title">Task categories</span>
+      <span class="chart-card-sub">which category takes most time</span>
+    </div>
+    <canvas id="categoryChart" height="200"></canvas>
+  </div>
+
+  <div class="chart-card chart-card--md">
+    <div class="chart-card-header">
+      <span class="chart-card-title">Habit consistency</span>
+      <span class="chart-card-sub">weekly percentage by habit</span>
+    </div>
+    <canvas id="habitChart" height="200"></canvas>
+  </div>
+</div>
+
+<script id="analytics-data" type="application/json">
+{
+  "completed": {{ completed }},
+  "pending": {{ pending }},
+  "missed": {{ missed }},
+  "daily": {{ daily|tojson }},
+  "by_cat": {{ by_cat|tojson }},
+  "category_hours": {{ category_hours|tojson }},
+  "progress_labels": {{ progress_labels|tojson }},
+  "progress_values": {{ progress_values|tojson }},
+  "habit_labels": {{ habit_summaries|map(attribute='habit.title')|list|tojson }},
+  "habit_percentages": {{ habit_summaries|map(attribute='percentage')|list|tojson }}
+}
+</script>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const data = JSON.parse(document.getElementById('analytics-data').textContent);
+  initAnalyticsCharts(data);
+});
+</script>
+{% endblock %}

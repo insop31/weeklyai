@@ -1,0 +1,392 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — WeeklyAI{% endblock %}
+{% block page_title %}My Calendar{% endblock %}
+
+{% block content %}
+
+{# ── Build the 7-day week array centred on today ── #}
+{% set today = now.date() if now is defined else [] %}
+{% set days_labels = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] %}
+
+<div class="dashboard-layout">
+
+  <!-- ══════════════════════════════════════
+       LEFT PANEL — mini calendar + checklists
+  ══════════════════════════════════════ -->
+  <aside class="left-panel">
+
+    <!-- Mini Calendar -->
+    <div class="panel-card">
+      <div class="mini-cal-header">
+        <span class="mini-cal-month" id="calMonthLabel"></span>
+        <div class="mini-cal-nav">
+          <button class="cal-nav-btn" id="calPrev">&#8249;</button>
+          <button class="cal-nav-btn" id="calNext">&#8250;</button>
+        </div>
+      </div>
+      <div class="mini-cal-grid">
+        <div class="cal-day-name">Mo</div>
+        <div class="cal-day-name">Tu</div>
+        <div class="cal-day-name">We</div>
+        <div class="cal-day-name">Th</div>
+        <div class="cal-day-name">Fr</div>
+        <div class="cal-day-name">Sa</div>
+        <div class="cal-day-name">Su</div>
+      </div>
+      <div class="mini-cal-days" id="miniCalDays"></div>
+    </div>
+
+    <div class="panel-card">
+      <div class="checklist-header">
+        <span class="checklist-title">Selected Date</span>
+        <button class="btn-add-small" type="button" onclick="openEventModal()">+ Add Event</button>
+      </div>
+      <div class="selected-date-label" id="selectedDateLabel">Choose a date</div>
+      <div class="selected-date-events" id="selectedDateEvents"></div>
+    </div>
+
+    <!-- My Calendar checklist -->
+    {% for cal_list in cal_lists %}
+    <div class="panel-card checklist-card">
+      <div class="checklist-header">
+        <span class="checklist-title">{{ cal_list.name }}</span>
+        {% if loop.first %}
+          <span class="checklist-badge">Checklist</span>
+        {% else %}
+          <button class="btn-add-small" onclick="openModal()">+ Add Task</button>
+        {% endif %}
+      </div>
+
+      {% for item in cal_list.items %}
+      <div class="checklist-item {% if item.completed %}completed{% endif %}"
+           data-id="{{ item.id }}">
+        <button class="check-circle {% if item.completed %}checked{% endif %}"
+                onclick="toggleCheck('{{ item.id }}', this)">
+          {% if item.completed %}
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+            <path d="M2 5l2.5 2.5L8 3" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          {% endif %}
+        </button>
+        <span class="check-label">{{ item.title }}</span>
+      </div>
+      {% else %}
+        <p class="empty-list">No items yet</p>
+      {% endfor %}
+
+      <button class="add-item-btn" onclick="openModal()">+ Add item</button>
+    </div>
+    {% endfor %}
+
+    <div class="panel-card">
+      <div class="checklist-header">
+        <span class="checklist-title">Habit Tracker</span>
+        <span class="checklist-badge">Daily</span>
+      </div>
+
+      <form method="POST" action="{{ url_for('tasks.add_habit') }}" class="inline-form">
+        <input type="text" name="title" class="form-input" placeholder="Add a habit like Reading" required/>
+        <select name="category" class="form-input">
+          <option>Study</option>
+          <option>Health</option>
+          <option>Work</option>
+          <option selected>Personal</option>
+        </select>
+        <button type="submit" class="btn-add-small">Save Habit</button>
+      </form>
+
+      {% for item in habit_summaries %}
+      <div class="habit-row">
+        <button class="check-circle {% if item.completed_today %}checked{% endif %}"
+                onclick="toggleHabit('{{ item.habit.id }}', this)">
+          {% if item.completed_today %}
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+            <path d="M2 5l2.5 2.5L8 3" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          {% endif %}
+        </button>
+        <div class="habit-copy">
+          <div class="habit-title">{{ item.habit.title }}</div>
+          <div class="habit-meta">{{ item.streak }} day streak • {{ item.percentage }}% this week</div>
+        </div>
+      </div>
+      {% else %}
+      <p class="empty-list">No habits yet</p>
+      {% endfor %}
+    </div>
+
+    <div class="panel-card">
+      <div class="checklist-header">
+        <span class="checklist-title">Goals</span>
+        <span class="checklist-badge">AI tracked</span>
+      </div>
+
+      <form method="POST" action="{{ url_for('tasks.add_goal') }}" class="inline-form inline-form--goal">
+        <input type="text" name="title" class="form-input" placeholder="Add a goal" required/>
+        <select name="period" class="form-input">
+          <option>Daily</option>
+          <option selected>Weekly</option>
+          <option>Monthly</option>
+        </select>
+        <input type="number" name="target_value" class="form-input" min="1" value="3"/>
+        <button type="submit" class="btn-add-small">Save Goal</button>
+      </form>
+
+      {% for item in goal_progress %}
+      <div class="goal-row">
+        <div class="goal-title">{{ item.goal.title }}</div>
+        <div class="goal-meta">{{ item.goal.period }} goal • {{ item.current }}/{{ item.goal.target_value }}</div>
+        <div class="prob-bar-track">
+          <div class="prob-bar-fill" style="width: {{ item.percentage }}%"></div>
+        </div>
+      </div>
+      {% else %}
+      <p class="empty-list">No goals yet</p>
+      {% endfor %}
+    </div>
+
+    <div class="panel-card">
+      <div class="checklist-header">
+        <span class="checklist-title">Gamification</span>
+        <span class="checklist-badge">Live</span>
+      </div>
+      <div class="game-stats">
+        <div class="game-stat">
+          <span class="stat-label">Points</span>
+          <span class="stat-value">{{ gamification.points }}</span>
+        </div>
+        <div class="game-stat">
+          <span class="stat-label">Streak</span>
+          <span class="stat-value">{{ gamification.productivity_streak }}</span>
+        </div>
+      </div>
+      <div class="badge-row">
+        {% for badge in gamification.badges %}
+        <span class="badge-pill">{{ badge }}</span>
+        {% endfor %}
+      </div>
+    </div>
+
+  </aside>
+
+  <!-- ══════════════════════════════════════
+       CALENDAR GRID — weekly view
+  ══════════════════════════════════════ -->
+  <section class="calendar-section">
+    {% if burnout_warning %}
+    <div class="insight-banner insight-banner--warning">
+      <strong>Burnout detection:</strong> {{ burnout_warning }}
+    </div>
+    {% endif %}
+
+    {% if urgent_tasks %}
+    <div class="insight-banner">
+      <strong>Urgent focus:</strong>
+      {% for task in urgent_tasks %}
+        <span class="insight-chip">{{ task.title }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if weekly_reflection %}
+    <div class="reflection-card">
+      <div class="chart-card-title">AI Weekly Reflection</div>
+      <div class="reflection-list">
+        {% for line in weekly_reflection %}
+        <div class="reflection-item">{{ line }}</div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Grid header: date + nav -->
+    <div class="grid-header-row">
+      <span class="grid-date-label" id="gridDateLabel"></span>
+      <div class="grid-header-right">
+        <button class="grid-today-btn" onclick="goToToday()">Today</button>
+        <button class="grid-nav-btn" id="gridPrev">&#8249;</button>
+        <button class="grid-nav-btn" id="gridNext">&#8250;</button>
+      </div>
+    </div>
+
+    <div class="calendar-grid-wrap">
+      <!-- Time column + day columns -->
+      <div class="calendar-grid" id="calendarGrid">
+
+        <!-- Time gutter -->
+        <div class="time-gutter">
+          <div class="gutter-tz">GMT+5</div>
+          {% for hour in range(0, 24) %}
+          <div class="time-slot-label">
+            {% set display_hour = 12 if hour % 12 == 0 else hour % 12 %}
+            {{ display_hour }} {{ 'Am' if hour < 12 else 'Pm' }}
+          </div>
+          {% endfor %}
+        </div>
+
+        <!-- Day columns — rendered by calendar.js using task data below -->
+        {% for label in days_labels %}
+        <div class="day-column" id="day-col-{{ loop.index0 }}">
+          <div class="day-col-header" id="day-header-{{ loop.index0 }}">
+            <span class="col-day-name">{{ label }}</span>
+            <span class="col-day-num" id="col-num-{{ loop.index0 }}"></span>
+          </div>
+          <div class="day-col-body" data-day="{{ loop.index0 }}">
+            <!-- Task cards injected by calendar.js -->
+          </div>
+        </div>
+        {% endfor %}
+
+      </div><!-- end .calendar-grid -->
+    </div><!-- end .calendar-grid-wrap -->
+
+  </section>
+
+</div><!-- end .dashboard-layout -->
+
+<div id="event-modal-overlay" class="modal-overlay" onclick="closeEventModal(event)">
+  <div class="modal-card" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <span class="modal-title">Add Calendar Event</span>
+      <button class="modal-close" type="button" onclick="closeEventModal()">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <path d="M1 1l12 12M13 1L1 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </div>
+
+    <form method="POST" action="{{ url_for('tasks.add_calendar_event') }}" class="modal-form">
+      <div class="form-group">
+        <label class="form-label">Event title</label>
+        <input type="text" name="title" class="form-input" placeholder="Birthday, Anniversary, Holiday" required/>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Date</label>
+          <input type="date" id="eventDateInput" name="event_date" class="form-input" required/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Type</label>
+          <select name="event_type" class="form-input">
+            <option>Birthday</option>
+            <option>Anniversary</option>
+            <option>Holiday</option>
+            <option selected>Personal</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Notes</label>
+        <input type="text" name="notes" class="form-input" placeholder="Optional note"/>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn-cancel" onclick="closeEventModal()">Cancel</button>
+        <button type="submit" class="btn-save">Save Event</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# Pass task data to calendar.js as JSON #}
+<script id="task-data" type="application/json">
+[
+  {% for task in tasks %}
+  {
+    "id":         {{ task.id }},
+    "title":      {{ task.title|tojson }},
+    "category":   {{ (task.category or 'Work')|tojson }},
+    "priority":   {{ (task.priority or 'Medium')|tojson }},
+    "status":     {{ (task.status or 'Pending')|tojson }},
+    "color":      {{ (task.color or 'purple')|tojson }},
+    "attendees":  {{ task.attendees or 1 }},
+    "deadline":   {{ task.deadline.isoformat()|tojson if task.deadline else 'null' }},
+    "tags":       {{ task.tags|map(attribute='name')|list|tojson }},
+    "start_time": {{ task.start_time.isoformat()|tojson if task.start_time else 'null' }},
+    "end_time":   {{ task.end_time.isoformat()|tojson   if task.end_time   else 'null' }}
+  }{% if not loop.last %},{% endif %}
+  {% endfor %}
+]
+</script>
+
+<script id="calendar-event-data" type="application/json">
+[
+  {% for event in calendar_events %}
+  {
+    "id": {{ event.id }},
+    "title": {{ event.title|tojson }},
+    "event_type": {{ (event.event_type or 'Personal')|tojson }},
+    "event_date": {{ event.event_date.isoformat()|tojson }},
+    "notes": {{ event.notes|tojson if event.notes else 'null' }}
+  }{% if not loop.last %},{% endif %}
+  {% endfor %}
+]
+</script>
+
+{% endblock %}
+
+
+{% block scripts %}
+<script>
+  /* calendar.js reads #task-data and renders the grid */
+  document.addEventListener('DOMContentLoaded', () => {
+    initCalendar();
+  });
+
+  function openEventModal(dateValue) {
+    const overlay = document.getElementById('event-modal-overlay');
+    const input = document.getElementById('eventDateInput');
+    if (dateValue && input) input.value = dateValue;
+    overlay.classList.add('open');
+  }
+
+  function closeEventModal(e) {
+    const overlay = document.getElementById('event-modal-overlay');
+    if (!e || e.target === overlay) {
+      overlay.classList.remove('open');
+    }
+  }
+
+  async function toggleHabit(habitId, btn) {
+    const res = await fetch(`/toggle_habit/${habitId}`, {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({date: new Date().toISOString().slice(0, 10)}),
+    });
+    if (res.ok) location.reload();
+  }
+
+  /* Toggle checklist item via PATCH */
+  async function toggleCheck(itemId, btn) {
+    const row = btn.closest('.checklist-item');
+    const isNowComplete = !row.classList.contains('completed');
+    row.classList.toggle('completed');
+    btn.classList.toggle('checked');
+
+    await fetch(`/toggle_checklist/${itemId}`, {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({completed: isNowComplete}),
+    });
+  }
+
+  /* Delete task */
+  async function deleteTask(taskId) {
+    if (!confirm('Delete this task?')) return;
+    await fetch(`/delete_task/${taskId}`, {method: 'DELETE'});
+    location.reload();
+  }
+
+  /* Mark task complete */
+  async function markDone(taskId) {
+    await fetch(`/update_task/${taskId}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({status: 'Completed'}),
+    });
+    location.reload();
+  }
+</script>
+{% endblock %}
