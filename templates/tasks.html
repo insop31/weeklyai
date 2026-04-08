@@ -35,6 +35,52 @@
   </div>
 </div>
 
+<div class="task-progression">
+  <div class="task-progression-main">
+    <div class="league-card league-card--{{ gamification.league.accent }}">
+      <div class="league-orb league-orb--one"></div>
+      <div class="league-orb league-orb--two"></div>
+      <div class="league-mark">{{ gamification.league.icon }}</div>
+      <div class="league-copy">
+        <div class="league-name">{{ gamification.league.name }}</div>
+        <div class="league-meta">Level {{ gamification.level }} - {{ gamification.completed_tasks }} tasks cleared</div>
+      </div>
+    </div>
+    <div class="task-progression-bar">
+      <div class="task-progression-label">
+        <span>XP Progress</span>
+        <span>
+          {% if gamification.next_level_points %}
+            {{ gamification.points_to_next_level }} XP to next level
+          {% else %}
+            Maxed out
+          {% endif %}
+        </span>
+      </div>
+      <div class="prob-bar-track">
+        <div class="prob-bar-fill" style="width: {{ gamification.level_progress }}%"></div>
+      </div>
+    </div>
+  </div>
+  <div class="badge-row">
+    {% for badge in gamification.badges %}
+    <span class="badge-pill">
+      <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+        <path d="M5 1.2l.9 1.8 2 .3-1.45 1.4.35 2-1.8-.95-1.8.95.35-2L2.1 3.3l2-.3L5 1.2z" fill="currentColor"/>
+      </svg>
+      {{ badge }}
+    </span>
+    {% endfor %}
+  </div>
+</div>
+
+{% if tasks %}
+<div class="smart-priority-banner">
+  <div class="smart-priority-title">Smart Priority System</div>
+  <div class="smart-priority-sub">Tasks are automatically arranged by deadline pressure, priority, missed work, and estimated effort.</div>
+</div>
+{% endif %}
+
 {% if tasks %}
 <div class="task-list">
   {% for task in tasks %}
@@ -44,6 +90,7 @@
         <span class="task-row-title">{{ task.title }}</span>
         <span class="cat-badge cat-{{ (task.category or 'work')|lower }}">{{ task.category or 'Work' }}</span>
         <span class="pri-badge pri-{{ (task.priority or 'medium')|lower }}">{{ task.priority or 'Medium' }}</span>
+        <span class="badge-pill">Priority {{ smart_priority_scores.get(task.id, 0) }}/100</span>
         {% for tag in task.tags %}
         <span class="badge-pill badge-pill--soft">{{ tag.name }}</span>
         {% endfor %}
@@ -52,6 +99,7 @@
         <span class="task-meta-item">Status: <strong>{{ task.status }}</strong></span>
         <span class="task-meta-item">Start: <strong>{{ task.start_time.strftime('%b %d, %I:%M %p') if task.start_time else 'Unscheduled' }}</strong></span>
         <span class="task-meta-item">End: <strong>{{ task.end_time.strftime('%b %d, %I:%M %p') if task.end_time else 'Not set' }}</strong></span>
+        <span class="task-meta-item">Deadline: <strong>{{ task.deadline.strftime('%b %d, %I:%M %p') if task.deadline else 'Flexible' }}</strong></span>
       </div>
     </div>
   </article>

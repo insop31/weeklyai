@@ -1,8 +1,16 @@
 {% extends "base.html" %}
-{% block title %}Dashboard — WeeklyAI{% endblock %}
-{% block page_title %}My Calendar{% endblock %}
+{% block title %}Adaptive AI Planner — WeeklyAI{% endblock %}
+{% block page_title %}Adaptive AI Planner{% endblock %}
 
 {% block content %}
+
+{% set intention = daily_intention|default({
+  'badge': 'Daily Intention',
+  'focus': 'Gentle Productivity',
+  'title': 'Take one steady step today.',
+  'body': 'Choose the next meaningful task and let calm focus carry it forward.',
+  'action': 'Refresh intention'
+}, true) %}
 
 {# ── Build the 7-day week array centred on today ── #}
 {% set today = now.date() if now is defined else [] %}
@@ -38,7 +46,15 @@
 
     <div class="panel-card">
       <div class="checklist-header">
-        <span class="checklist-title">Selected Date</span>
+        <span class="panel-title-group">
+          <span class="panel-icon-badge">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <rect x="2" y="3" width="10" height="9" rx="2" stroke="currentColor" stroke-width="1.3"/>
+              <path d="M4 1.8V4M10 1.8V4M2 5.5H12" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+            </svg>
+          </span>
+          <span class="checklist-title">Selected Date</span>
+        </span>
         <button class="btn-add-small" type="button" onclick="openEventModal()">+ Add Event</button>
       </div>
       <div class="selected-date-label" id="selectedDateLabel">Choose a date</div>
@@ -49,7 +65,7 @@
     {% for cal_list in cal_lists %}
     <div class="panel-card checklist-card">
       <div class="checklist-header">
-        <span class="checklist-title">{{ cal_list.name }}</span>
+        <span class="checklist-title">{% if loop.first %}Adaptive AI Planner{% else %}{{ cal_list.name }}{% endif %}</span>
         {% if loop.first %}
           <span class="checklist-badge">Checklist</span>
         {% else %}
@@ -80,7 +96,14 @@
 
     <div class="panel-card">
       <div class="checklist-header">
-        <span class="checklist-title">Habit Tracker</span>
+        <span class="panel-title-group">
+          <span class="panel-icon-badge">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M7 12.2s-4-2.4-4-6.1a2.3 2.3 0 014-1.5 2.3 2.3 0 014 1.5c0 3.7-4 6.1-4 6.1z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
+            </svg>
+          </span>
+          <span class="checklist-title">Habit Tracker</span>
+        </span>
         <span class="checklist-badge">Daily</span>
       </div>
 
@@ -117,7 +140,16 @@
 
     <div class="panel-card">
       <div class="checklist-header">
-        <span class="checklist-title">Goals</span>
+        <span class="panel-title-group">
+          <span class="panel-icon-badge">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.3"/>
+              <circle cx="7" cy="7" r="1.5" fill="currentColor"/>
+              <path d="M10.4 3.6L12 2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+            </svg>
+          </span>
+          <span class="checklist-title">Goals</span>
+        </span>
         <span class="checklist-badge">AI tracked</span>
       </div>
 
@@ -147,22 +179,98 @@
 
     <div class="panel-card">
       <div class="checklist-header">
-        <span class="checklist-title">Gamification</span>
+        <span class="panel-title-group">
+          <span class="panel-icon-badge panel-icon-badge--highlight">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M4 2.5h6v2.3a3 3 0 01-6 0V2.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
+              <path d="M4 4H2.6a1.1 1.1 0 000 2.2H4M10 4h1.4a1.1 1.1 0 010 2.2H10M7 7.8v2.2M5.2 12h3.6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+            </svg>
+          </span>
+          <span class="checklist-title">Gamification</span>
+        </span>
         <span class="checklist-badge">Live</span>
+      </div>
+      <div class="league-card league-card--{{ gamification.league.accent }}">
+        <div class="league-orb league-orb--one"></div>
+        <div class="league-orb league-orb--two"></div>
+        <div class="league-mark">{{ gamification.league.icon }}</div>
+        <div class="league-copy">
+          <div class="league-name">{{ gamification.league.name }}</div>
+          <div class="league-meta">Level {{ gamification.level }} - {{ gamification.points }} XP</div>
+        </div>
       </div>
       <div class="game-stats">
         <div class="game-stat">
           <span class="stat-label">Points</span>
-          <span class="stat-value">{{ gamification.points }}</span>
+          <span class="stat-value" id="gamificationPoints">{{ gamification.points }}</span>
         </div>
         <div class="game-stat">
           <span class="stat-label">Streak</span>
-          <span class="stat-value">{{ gamification.productivity_streak }}</span>
+          <span class="stat-value" id="gamificationStreak">{{ gamification.productivity_streak }}</span>
         </div>
       </div>
-      <div class="badge-row">
+      <div class="xp-block">
+        <div class="xp-copy">
+          <span class="stat-label">Level progress</span>
+          <span class="xp-meta" id="gamificationXpMeta">
+            {% if gamification.next_level_points %}
+              {{ gamification.points_to_next_level }} XP to Level {{ gamification.level + 1 }}
+            {% else %}
+              Max level reached
+            {% endif %}
+          </span>
+        </div>
+        <div class="prob-bar-track">
+          <div class="prob-bar-fill" id="gamificationLevelFill" style="width: {{ gamification.level_progress }}%"></div>
+        </div>
+      </div>
+      <div class="badge-row" id="gamificationBadgeRow">
         {% for badge in gamification.badges %}
         <span class="badge-pill">{{ badge }}</span>
+        {% endfor %}
+      </div>
+      <div class="completion-feed" id="completionFeed">
+        <div class="completion-feed-title">Recent wins</div>
+        <div class="completion-feed-list" id="completionFeedList">
+          {% for item in gamification.recent_completions %}
+          <div class="completion-feed-item" data-task-id="{{ item.id }}">
+            <div class="completion-feed-main">
+              <div class="completion-feed-task">{{ item.title }}</div>
+              <div class="completion-feed-meta">{{ item.category }} completed</div>
+            </div>
+            <span class="completion-feed-xp">+{{ item.xp }} XP</span>
+          </div>
+          {% else %}
+          <div class="completion-feed-empty" id="completionFeedEmpty">Complete a task to start your streak story.</div>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="unlock-list">
+        {% for feature in gamification.unlocked_features %}
+        <div class="unlock-item {% if feature.unlocked %}unlock-item--on{% else %}unlock-item--locked{% endif %}">
+          <div class="unlock-title">{{ feature.name }}</div>
+          <div class="unlock-meta">{{ feature.description }}</div>
+        </div>
+        {% endfor %}
+      </div>
+      {% if gamification.next_unlock %}
+      <div class="next-unlock-card">
+        <div class="unlock-title">Next unlock: {{ gamification.next_unlock.name }}</div>
+        <div class="unlock-meta">Arrives at Level {{ gamification.next_unlock.level }}</div>
+      </div>
+      {% endif %}
+      <div class="badge-progress-list">
+        {% for badge in gamification.badge_details %}
+        <div class="badge-progress-item">
+          <div class="badge-progress-top">
+            <span class="badge-progress-name">{{ badge.name }}</span>
+            <span class="badge-progress-meta">{{ badge.progress }}/{{ badge.target }}</span>
+          </div>
+          <div class="badge-progress-desc">{{ badge.description }}</div>
+          <div class="prob-bar-track">
+            <div class="prob-bar-fill" style="width: {{ (badge.progress / badge.target * 100) | round(0, 'floor') }}%"></div>
+          </div>
+        </div>
         {% endfor %}
       </div>
     </div>
@@ -173,6 +281,35 @@
        CALENDAR GRID — weekly view
   ══════════════════════════════════════ -->
   <section class="calendar-section">
+    <div class="daily-intention-shell" id="dailyIntentionCard">
+      <div class="daily-intention-copy">
+        <span class="daily-intention-badge" id="dailyIntentionBadge">{{ intention.badge }}</span>
+        <div class="daily-intention-focus-wrap">
+          <span class="daily-intention-eyebrow">Current Intent</span>
+          <span class="daily-intention-focus" id="dailyIntentionFocus">{{ intention.focus }}</span>
+        </div>
+        <h2 class="daily-intention-title" id="dailyIntentionTitle">{{ intention.title }}</h2>
+        <p class="daily-intention-body" id="dailyIntentionBody">{{ intention.body }}</p>
+        <button
+          class="daily-intention-refresh"
+          id="dailyIntentionRefresh"
+          type="button"
+          onclick="refreshDailyIntention()"
+        >
+          {{ intention.action }}
+        </button>
+      </div>
+      <div class="daily-intention-art" aria-hidden="true">
+        <div class="daily-intention-orb daily-intention-orb--one"></div>
+        <div class="daily-intention-orb daily-intention-orb--two"></div>
+        <div class="daily-intention-heart">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <path d="M10 16.5s-5.75-3.4-5.75-8.55a3.25 3.25 0 015.75-2.1 3.25 3.25 0 015.75 2.1C15.75 13.1 10 16.5 10 16.5z" fill="currentColor"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+
     {% if burnout_warning %}
     <div class="insight-banner insight-banner--warning">
       <strong>Burnout detection:</strong> {{ burnout_warning }}
@@ -188,13 +325,57 @@
     </div>
     {% endif %}
 
+    {% if prioritized_tasks %}
+    <div class="insight-banner insight-banner--priority">
+      <strong>Smart priority:</strong>
+      {% for item in prioritized_tasks %}
+        <span class="insight-chip">#{{ loop.index }} {{ item.task.title }} ({{ item.score }})</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+
     {% if weekly_reflection %}
-    <div class="reflection-card">
-      <div class="chart-card-title">AI Weekly Reflection</div>
-      <div class="reflection-list">
-        {% for line in weekly_reflection %}
-        <div class="reflection-item">{{ line }}</div>
-        {% endfor %}
+    <div class="reflection-toggle-wrap">
+      <button
+        type="button"
+        class="reflection-toggle-btn"
+        id="reflectionToggleBtn"
+        aria-expanded="false"
+        aria-controls="reflectionPanel"
+        onclick="openReflectionPopup()"
+      >
+        <span class="reflection-toggle-mini-icon">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <path d="M6 1.3l1.1 2.2 2.4.35-1.75 1.7.42 2.45L6 6.85 3.83 8l.42-2.45L2.5 3.85l2.4-.35L6 1.3z" fill="currentColor"/>
+          </svg>
+        </span>
+        <span class="reflection-toggle-label">AI Reflection</span>
+      </button>
+      <div
+        class="reflection-popup-overlay reflection-card--hidden"
+        id="reflectionPanel"
+        onclick="closeReflectionPopup(event)"
+      >
+        <div class="reflection-popup-card" onclick="event.stopPropagation()">
+          <div class="modal-header">
+            <span class="modal-title">AI Weekly Reflection</span>
+            <button
+              class="modal-close"
+              type="button"
+              aria-label="Close reflection"
+              onclick="closeReflectionPopup()"
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <path d="M1 1l12 12M13 1L1 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+            </button>
+          </div>
+          <div class="reflection-list">
+            {% for line in weekly_reflection %}
+            <div class="reflection-item">{{ line }}</div>
+            {% endfor %}
+          </div>
+        </div>
       </div>
     </div>
     {% endif %}
@@ -209,7 +390,7 @@
       </div>
     </div>
 
-    <div class="calendar-grid-wrap">
+    <div class="calendar-grid-wrap" id="calendarGridWrap">
       <!-- Time column + day columns -->
       <div class="calendar-grid" id="calendarGrid">
 
@@ -300,7 +481,7 @@
     "category":   {{ (task.category or 'Work')|tojson }},
     "priority":   {{ (task.priority or 'Medium')|tojson }},
     "status":     {{ (task.status or 'Pending')|tojson }},
-    "color":      {{ (task.color or 'purple')|tojson }},
+    "color":      {{ ('lime' if (task.priority or 'Medium') == 'High' else 'pink' if (task.priority or 'Medium') == 'Low' else 'purple')|tojson }},
     "attendees":  {{ task.attendees or 1 }},
     "deadline":   {{ task.deadline.isoformat()|tojson if task.deadline else 'null' }},
     "tags":       {{ task.tags|map(attribute='name')|list|tojson }},
@@ -349,7 +530,119 @@
     }
   }
 
+  function openReflectionPopup() {
+    const panel = document.getElementById('reflectionPanel');
+    const btn = document.getElementById('reflectionToggleBtn');
+    if (!panel || !btn) return;
+    panel.classList.remove('reflection-card--hidden');
+    btn.setAttribute('aria-expanded', 'true');
+  }
+
+  function closeReflectionPopup(e) {
+    const panel = document.getElementById('reflectionPanel');
+    const btn = document.getElementById('reflectionToggleBtn');
+    if (!panel || !btn) return;
+    if (!e || e.target === panel) {
+      panel.classList.add('reflection-card--hidden');
+      btn.setAttribute('aria-expanded', 'false');
+    }
+  }
+
+  function spawnBurst(target) {
+    if (!target) return;
+    const burst = document.createElement('span');
+    burst.className = 'tap-burst';
+    const rect = target.getBoundingClientRect();
+    burst.style.left = `${rect.left + rect.width / 2}px`;
+    burst.style.top = `${rect.top + rect.height / 2}px`;
+    document.body.appendChild(burst);
+    setTimeout(() => burst.remove(), 500);
+  }
+
+  function renderGamificationFeed(items) {
+    const list = document.getElementById('completionFeedList');
+    if (!list) return;
+
+    if (!items || !items.length) {
+      list.innerHTML = '<div class="completion-feed-empty" id="completionFeedEmpty">Complete a task to start your streak story.</div>';
+      return;
+    }
+
+    list.innerHTML = items.map((item) => `
+      <div class="completion-feed-item" data-task-id="${item.id}">
+        <div class="completion-feed-main">
+          <div class="completion-feed-task">${item.title}</div>
+          <div class="completion-feed-meta">${item.category} completed</div>
+        </div>
+        <span class="completion-feed-xp">+${item.xp} XP</span>
+      </div>
+    `).join('');
+  }
+
+  function refreshGamificationPanelFromPayload(payload) {
+    if (!payload || !payload.gamification) return;
+    const data = payload.gamification;
+
+    const points = document.getElementById('gamificationPoints');
+    const streak = document.getElementById('gamificationStreak');
+    const xpMeta = document.getElementById('gamificationXpMeta');
+    const levelFill = document.getElementById('gamificationLevelFill');
+    const badgeRow = document.getElementById('gamificationBadgeRow');
+
+    if (points) points.textContent = data.points ?? points.textContent;
+    if (streak) streak.textContent = data.productivity_streak ?? streak.textContent;
+    if (xpMeta) {
+      xpMeta.textContent = data.next_level_points
+        ? `${data.points_to_next_level} XP to Level ${data.level + 1}`
+        : 'Max level reached';
+    }
+    if (levelFill && typeof data.level_progress !== 'undefined') {
+      levelFill.style.width = `${data.level_progress}%`;
+    }
+    if (badgeRow && Array.isArray(data.badges)) {
+      badgeRow.innerHTML = data.badges.map((badge) => `<span class="badge-pill">${badge}</span>`).join('');
+    }
+
+    renderGamificationFeed(payload.recent_completions || []);
+  }
+
+  async function refreshDailyIntention() {
+    const button = document.getElementById('dailyIntentionRefresh');
+    const badge = document.getElementById('dailyIntentionBadge');
+    const focus = document.getElementById('dailyIntentionFocus');
+    const title = document.getElementById('dailyIntentionTitle');
+    const body = document.getElementById('dailyIntentionBody');
+    if (!button || !badge || !focus || !title || !body) return;
+
+    const originalLabel = button.textContent;
+    button.disabled = true;
+    button.textContent = 'Refreshing...';
+
+    try {
+      const res = await fetch(`/api/daily-intention?ts=${Date.now()}`, {
+        method: 'POST',
+        cache: 'no-store',
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest',
+          'Content-Type': 'application/json',
+        },
+      });
+      if (!res.ok) throw new Error('request_failed');
+      const data = await res.json();
+      badge.textContent = data.badge || 'Daily Intention';
+      focus.textContent = data.focus || 'Gentle Productivity';
+      title.textContent = data.title || 'Take one steady step today.';
+      body.textContent = data.body || 'Choose the next meaningful task and let calm focus carry it forward.';
+      button.textContent = data.action || originalLabel;
+    } catch (error) {
+      button.textContent = 'Try again';
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   async function toggleHabit(habitId, btn) {
+    spawnBurst(btn);
     const res = await fetch(`/toggle_habit/${habitId}`, {
       method: 'PATCH',
       headers: {'Content-Type': 'application/json'},
@@ -364,6 +657,7 @@
     const isNowComplete = !row.classList.contains('completed');
     row.classList.toggle('completed');
     btn.classList.toggle('checked');
+    spawnBurst(btn);
 
     await fetch(`/toggle_checklist/${itemId}`, {
       method: 'PATCH',
@@ -381,12 +675,20 @@
 
   /* Mark task complete */
   async function markDone(taskId) {
-    await fetch(`/update_task/${taskId}`, {
+    const res = await fetch(`/update_task/${taskId}`, {
       method: 'PUT',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({status: 'Completed'}),
     });
-    location.reload();
+    if (res.ok && typeof allTasks !== 'undefined') {
+      const payload = await res.json();
+      const task = allTasks.find(item => item.id === taskId);
+      if (task) task.status = 'Completed';
+      if (typeof renderCalendarView === 'function') renderCalendarView();
+      if (typeof renderSelectedDateEvents === 'function') renderSelectedDateEvents();
+      refreshGamificationPanelFromPayload(payload);
+      if (task && typeof showTaskFinishPopup === 'function') showTaskFinishPopup(task.title);
+    }
   }
 </script>
 {% endblock %}

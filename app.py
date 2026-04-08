@@ -1,4 +1,4 @@
-from flask import Flask, render_template
+from flask import Flask, jsonify, render_template, request
 from flask_login import LoginManager
 from config import config
 from models import db, User, Task, ActivityLog, CalendarList, ChecklistItem, Habit, HabitEntry, Goal, CalendarEvent
@@ -9,10 +9,12 @@ from routes.ai import ai_bp
 from datetime import datetime, timedelta
 import sys
 from insights import (
+    build_recent_completion_feed,
     compute_gamification,
     compute_goal_progress,
     compute_priority_score,
     detect_overload,
+    generate_daily_intention,
     is_urgent,
     summarize_habits,
     weekly_reflection,
@@ -45,6 +47,15 @@ def create_app(env="development"):
     @login_required
     def dashboard():
         tasks = Task.query.filter_by(user_id=current_user.id).all()
+        tasks = sorted(
+            tasks,
+            key=lambda task: (
+                getattr(task, "status", "") == "Completed",
+                getattr(task, "start_time", None) is None,
+                -compute_priority_score(task),
+                getattr(task, "start_time", None) or getattr(task, "deadline", None) or getattr(task, "created_at", datetime.utcnow()),
+            ),
+        )
         lists = CalendarList.query.filter_by(user_id=current_user.id).all()
         habits = Habit.query.filter_by(user_id=current_user.id).all()
         habit_entries = HabitEntry.query.filter_by(user_id=current_user.id).all()
@@ -58,12 +69,28 @@ def create_app(env="development"):
         habit_summaries = summarize_habits(habits, habit_entries)
         goal_progress = compute_goal_progress(goals, tasks, habit_summaries)
         gamification = compute_gamification(tasks, habit_summaries)
+        gamification["recent_completions"] = build_recent_completion_feed(tasks, logs)
         overload_days, burnout_warning = detect_overload(tasks)
         urgent_tasks = sorted(
-            [task for task in tasks if is_urgent(task)],
+            [task for task in tasks if getattr(task, "status", "") != "Completed"],
             key=lambda item: compute_priority_score(item),
             reverse=True,
         )[:5]
+
+        prioritized_tasks = [
+            {
+                "task": task,
+                "score": compute_priority_score(task),
+            }
+            for task in tasks
+            if getattr(task, "status", "") != "Completed"
+        ][:5]
+        daily_intention = generate_daily_intention(
+            tasks,
+            logs,
+            habit_summaries,
+            user_name=getattr(current_user, "name", None),
+        )
 
         return render_template(
             "dashboard.html",
@@ -73,26 +100,54 @@ def create_app(env="development"):
             goal_progress=goal_progress,
             gamification=gamification,
             urgent_tasks=urgent_tasks,
+            prioritized_tasks=prioritized_tasks,
             burnout_warning=burnout_warning,
             overload_days=overload_days,
+            daily_intention=daily_intention,
             weekly_reflection=weekly_reflection(tasks, logs, habit_summaries),
             calendar_events=calendar_events,
+            active_view=request.args.get("view", "weekly").lower(),
         )
+
+    @main_bp.route("/api/daily-intention", methods=["GET", "POST"])
+    @login_required
+    def daily_intention_api():
+        tasks = Task.query.filter_by(user_id=current_user.id).all()
+        habits = Habit.query.filter_by(user_id=current_user.id).all()
+        habit_entries = HabitEntry.query.filter_by(user_id=current_user.id).all()
+        logs = ActivityLog.query.filter_by(user_id=current_user.id).all()
+        intention = generate_daily_intention(
+            tasks,
+            logs,
+            summarize_habits(habits, habit_entries),
+            user_name=getattr(current_user, "name", None),
+        )
+        response = jsonify(intention)
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
 
     @main_bp.route("/task-list")
     @login_required
     def task_list():
         tasks = Task.query.filter_by(user_id=current_user.id).order_by(
-            Task.start_time.is_(None),
-            Task.start_time.asc(),
-            Task.created_at.desc()
         ).all()
+        tasks = sorted(
+            tasks,
+            key=lambda task: (
+                getattr(task, "status", "") == "Completed",
+                -compute_priority_score(task),
+                getattr(task, "deadline", None) or getattr(task, "start_time", None) or getattr(task, "created_at", datetime.utcnow()),
+            ),
+        )
         habits = Habit.query.filter_by(user_id=current_user.id).all()
         habit_entries = HabitEntry.query.filter_by(user_id=current_user.id).all()
         return render_template(
             "tasks.html",
             tasks=tasks,
             gamification=compute_gamification(tasks, summarize_habits(habits, habit_entries)),
+            smart_priority_scores={task.id: compute_priority_score(task) for task in tasks},
         )
 
     @main_bp.route("/messages")
@@ -160,8 +215,8 @@ def seed_data(app):
                 "Personal", "Work", "Study", "Health", "Work", "Personal"]
         pris = ["High","Medium","Low","High","Medium","High",
                 "Low","Medium","High","Low","Medium","High"]
-        cols = ["lime","purple","purple","lime","purple","lime",
-                "purple","lime","purple","purple","lime","purple"]
+        cols = ["lime","purple","pink","lime","purple","lime",
+                "pink","purple","lime","pink","purple","lime"]
         titles = [
             "Morning Run", "Yoga Exercise", "API Development", "Code Review",
             "Cardio Exercise", "Sprint Retrospective", "Read Research Paper",

@@ -36,7 +36,7 @@
 {% if recommendations %}
 <div class="rec-list">
   {% for rec in recommendations %}
-  <div class="rec-card {% if rec.reschedule %}rec-card--missed{% endif %}">
+  <div class="rec-card {% if rec.reschedule %}rec-card--missed{% endif %}" data-rec-task-id="{{ rec.task.id }}">
     <div class="rec-rank">{{ loop.index }}</div>
 
     <div class="rec-body">
@@ -145,12 +145,35 @@
 {% block scripts %}
 <script>
   async function markDone(taskId) {
-    await fetch(`/update_task/${taskId}`, {
+    const res = await fetch(`/update_task/${taskId}`, {
       method: 'PUT',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({status: 'Completed'}),
     });
-    location.reload();
+    if (!res.ok) return;
+
+    const card = document.querySelector(`[data-rec-task-id="${taskId}"]`) || Array.from(document.querySelectorAll('.rec-card')).find(
+      el => el.querySelector(`button[onclick="markDone('${taskId}')"]`)
+    );
+    if (!card) return;
+
+    card.classList.add('rec-card--done');
+    const title = card.querySelector('.rec-title');
+    if (title) title.textContent = `${title.textContent} (Completed)`;
+
+    const doneBtn = card.querySelector(`button[onclick="markDone('${taskId}')"]`);
+    if (doneBtn) {
+      doneBtn.textContent = 'Completed';
+      doneBtn.disabled = true;
+    }
+
+    const rescheduleBtn = card.querySelector(`button[onclick="smartReschedule('${taskId}')"]`);
+    if (rescheduleBtn) rescheduleBtn.disabled = true;
+
+    const taskName = title ? title.textContent.replace(/\s+\(Completed\)$/, '') : 'Task complete';
+    if (typeof showTaskFinishPopup === 'function') {
+      showTaskFinishPopup(taskName);
+    }
   }
 
   async function smartReschedule(taskId) {
@@ -162,5 +185,6 @@
     const prob = parseFloat(el.dataset.prob);
     el.style.width = (prob * 100) + '%';
   });
+
 </script>
 {% endblock %}

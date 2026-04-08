@@ -2,10 +2,19 @@ from flask import Blueprint, request, jsonify, redirect, url_for
 from flask_login import login_required, current_user
 from datetime import date, datetime, timedelta
 from models import db, Task, ActivityLog, CalendarList, ChecklistItem, Habit, HabitEntry, Goal, TaskTag, CalendarEvent
-from insights import infer_task_metadata, next_occurrence
+from insights import build_recent_completion_feed, compute_gamification, compute_priority_score, infer_task_metadata, next_occurrence, summarize_habits
 from ml_model import get_productive_slots
 
 tasks_bp = Blueprint("tasks", __name__)
+
+
+def priority_to_color(priority):
+    mapping = {
+        "High": "lime",
+        "Medium": "purple",
+        "Low": "pink",
+    }
+    return mapping.get(priority, "purple")
 
 @tasks_bp.route("/add_task", methods=["POST"])
 @login_required
@@ -16,16 +25,17 @@ def add_task():
         d.get("category", "Work"),
         d.get("tags", ""),
     )
+    priority = d.get("priority", "Medium")
     task = Task(
         user_id        = current_user.id,
         title          = d.get("title", "").strip(),
         category       = inferred_category,
-        priority       = d.get("priority", "Medium"),
+        priority       = priority,
         start_time     = datetime.fromisoformat(d["start_time"]) if d.get("start_time") else None,
         end_time       = datetime.fromisoformat(d["end_time"])   if d.get("end_time")   else None,
         deadline       = datetime.fromisoformat(d["deadline"])   if d.get("deadline")   else None,
         estimated_time = float(d.get("estimated_time", 1)),
-        color          = d.get("color", "purple"),
+        color          = priority_to_color(priority),
         attendees      = int(d.get("attendees", 1)),
     )
     db.session.add(task)
@@ -42,12 +52,22 @@ def add_task():
 @login_required
 def get_tasks():
     tasks = Task.query.filter_by(user_id=current_user.id).all()
+    tasks = sorted(
+        tasks,
+        key=lambda task: (
+            getattr(task, "status", "") == "Completed",
+            -compute_priority_score(task),
+            getattr(task, "deadline", None) or getattr(task, "start_time", None) or getattr(task, "created_at", datetime.utcnow()),
+        ),
+    )
     return jsonify([{
         "id": t.id, "title": t.title, "category": t.category,
-        "priority": t.priority, "status": t.status, "color": t.color,
+        "priority": t.priority, "status": t.status, "color": priority_to_color(t.priority),
         "start_time": t.start_time.isoformat() if t.start_time else None,
         "end_time":   t.end_time.isoformat()   if t.end_time   else None,
         "tags": [tag.name for tag in t.tags],
+        "deadline": t.deadline.isoformat() if t.deadline else None,
+        "smart_priority": compute_priority_score(t),
     } for t in tasks])
 
 
@@ -56,10 +76,14 @@ def get_tasks():
 def update_task(task_id):
     task = Task.query.filter_by(id=task_id, user_id=current_user.id).first_or_404()
     data = request.get_json()
+    previous_status = task.status
 
-    for field in ["title", "category", "priority", "status", "color"]:
+    for field in ["title", "category", "priority", "status"]:
         if field in data:
             setattr(task, field, data[field])
+
+    if "priority" in data:
+        task.color = priority_to_color(task.priority)
 
     if "start_time" in data:
         task.start_time = datetime.fromisoformat(data["start_time"]) if data["start_time"] else None
@@ -67,7 +91,7 @@ def update_task(task_id):
         task.end_time   = datetime.fromisoformat(data["end_time"]) if data["end_time"] else None
 
     # Log completion to activity_log
-    if data.get("status") == "Completed":
+    if data.get("status") == "Completed" and previous_status != "Completed":
         now = datetime.utcnow()
         log = ActivityLog(
             user_id         = current_user.id,
@@ -90,7 +114,24 @@ def update_task(task_id):
             task.status = "Pending"
 
     db.session.commit()
-    return jsonify({"success": True})
+
+    tasks = Task.query.filter_by(user_id=current_user.id).all()
+    logs = ActivityLog.query.filter_by(user_id=current_user.id).all()
+    habits = Habit.query.filter_by(user_id=current_user.id).all()
+    habit_entries = HabitEntry.query.filter_by(user_id=current_user.id).all()
+    gamification = compute_gamification(tasks, summarize_habits(habits, habit_entries))
+    recent_completions = build_recent_completion_feed(tasks, logs)
+
+    return jsonify({
+        "success": True,
+        "task": {
+            "id": task.id,
+            "title": task.title,
+            "status": task.status,
+        },
+        "gamification": gamification,
+        "recent_completions": recent_completions,
+    })
 
 
 @tasks_bp.route("/delete_task/<int:task_id>", methods=["DELETE"])

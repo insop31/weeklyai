@@ -125,9 +125,21 @@
           </svg>
         </button>
 
-        <div class="avatar-circle" title="{{ current_user.name }}">
-          {{ current_user.name[0].upper() }}
-        </div>
+        <details class="account-menu">
+          <summary class="account-trigger" title="{{ current_user.name }}" aria-label="Open account menu">
+            <span class="avatar-circle">
+              {{ current_user.name[0].upper() }}
+            </span>
+          </summary>
+          <div class="account-dropdown">
+            <div class="account-meta">
+              <span class="account-label">Signed in as</span>
+              <span class="account-name">{{ current_user.name }}</span>
+              <span class="account-email">{{ current_user.email }}</span>
+            </div>
+            <a href="{{ url_for('auth.logout') }}" class="account-action">Switch account</a>
+          </div>
+        </details>
         {% endif %}
       </div>
     </header>
@@ -217,27 +229,6 @@
           <input type="text" name="tags" class="form-input" placeholder="e.g. Database, Exam, Focus"/>
         </div>
 
-        <div class="form-group">
-          <label class="form-label">Card color</label>
-          <div class="color-picker">
-            <label class="color-opt">
-              <input type="radio" name="color" value="lime" checked/>
-              <span class="color-swatch swatch-lime"></span>
-              <span>Lime</span>
-            </label>
-            <label class="color-opt">
-              <input type="radio" name="color" value="purple"/>
-              <span class="color-swatch swatch-purple"></span>
-              <span>Purple</span>
-            </label>
-            <label class="color-opt">
-              <input type="radio" name="color" value="white"/>
-              <span class="color-swatch swatch-white"></span>
-              <span>White</span>
-            </label>
-          </div>
-        </div>
-
         <div class="modal-actions">
           <button type="button" class="btn-cancel" onclick="closeModal()">Cancel</button>
           <button type="submit" class="btn-save">Save Task</button>
@@ -249,6 +240,15 @@
 
   <script src="{{ url_for('static', filename='js/calendar.js') }}"></script>
   <script src="{{ url_for('static', filename='js/charts.js') }}"></script>
+  <div class="finish-popup-overlay finish-popup-overlay--hidden" id="finishPopup" onclick="closeFinishPopup(event)">
+    <div class="finish-popup-card" onclick="event.stopPropagation()">
+      <div class="finish-confetti" id="finishConfetti"></div>
+      <div class="finish-popup-badge">Task Finished</div>
+      <div class="finish-popup-title" id="finishPopupTitle">Nice work.</div>
+      <div class="finish-popup-sub">That task is now complete and your momentum just went up.</div>
+      <button type="button" class="btn-save finish-popup-btn" onclick="closeFinishPopup()">Keep going</button>
+    </div>
+  </div>
   <script>
     function openModal() {
       document.getElementById('task-modal-overlay').classList.add('open');
@@ -256,6 +256,34 @@
     function closeModal(e) {
       if (!e || e.target === document.getElementById('task-modal-overlay')) {
         document.getElementById('task-modal-overlay').classList.remove('open');
+      }
+    }
+
+    function showTaskFinishPopup(taskName) {
+      const popup = document.getElementById('finishPopup');
+      const title = document.getElementById('finishPopupTitle');
+      const confetti = document.getElementById('finishConfetti');
+      if (!popup || !title || !confetti) return;
+
+      title.textContent = `${taskName || 'Task'} finished`;
+      popup.classList.remove('finish-popup-overlay--hidden');
+
+      confetti.innerHTML = '';
+      for (let i = 0; i < 20; i++) {
+        const piece = document.createElement('span');
+        piece.className = 'confetti-piece';
+        piece.style.left = `${8 + (i * 4.3)}%`;
+        piece.style.animationDelay = `${(i % 6) * 0.06}s`;
+        piece.style.background = i % 3 === 0 ? '#C5F135' : (i % 3 === 1 ? '#7C6FE0' : '#ffffff');
+        confetti.appendChild(piece);
+      }
+    }
+
+    function closeFinishPopup(e) {
+      const popup = document.getElementById('finishPopup');
+      if (!popup) return;
+      if (!e || e.target === popup) {
+        popup.classList.add('finish-popup-overlay--hidden');
       }
     }
   </script>
