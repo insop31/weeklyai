@@ -1,7 +1,22 @@
 import os
-from dotenv import load_dotenv
+from pathlib import Path
 
-load_dotenv()
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    def load_dotenv(*args, **kwargs):
+        return False
+
+
+BASE_DIR = Path(__file__).resolve().parent
+DOTENV_PATH = BASE_DIR / ".env"
+
+
+def load_environment():
+    return load_dotenv(dotenv_path=DOTENV_PATH, override=False)
+
+
+load_environment()
 
 class Config:
     SECRET_KEY = os.getenv("FLASK_SECRET_KEY", "fallback-key")

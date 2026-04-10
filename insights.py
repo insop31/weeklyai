@@ -1,9 +1,16 @@
 from collections import Counter, defaultdict
 from datetime import date, datetime, time, timedelta
 import json
+import logging
 import os
 import random
 from urllib import error, request
+
+from config import load_environment
+
+
+load_environment()
+logger = logging.getLogger(__name__)
 
 
 CATEGORY_KEYWORDS = {
@@ -264,6 +271,29 @@ def compute_goal_progress(goals, tasks, habit_summaries):
     return progress
 
 
+def build_user_notifications(tasks, logs, habits, habit_entries, goals, calendar_events, user_name=None, now=None):
+    now = now or datetime.utcnow()
+    today = now.date()
+    habit_summaries = summarize_habits(habits, habit_entries)
+    goal_progress = compute_goal_progress(goals, tasks, habit_summaries)
+
+    notifications = []
+    notifications.extend(_build_task_notifications(tasks, now))
+    notifications.extend(_build_habit_notifications(habits, habit_entries, habit_summaries, today))
+    notifications.extend(_build_goal_notifications(goal_progress, today))
+    notifications.extend(_build_event_notifications(calendar_events, today))
+
+    notifications.sort(
+        key=lambda item: (
+            _notification_rank(item["severity"]),
+            item.get("sort_at") or datetime.max,
+            item.get("title", ""),
+        )
+    )
+
+    return notifications[:18]
+
+
 def compute_gamification(tasks, habit_summaries):
     completed_tasks = sum(1 for task in tasks if getattr(task, "status", "") == "Completed")
     habit_points = sum(item["streak"] * 2 for item in habit_summaries)
@@ -405,7 +435,17 @@ def build_recent_completion_feed(tasks, logs, limit=5):
     return feed
 
 
-def weekly_reflection(tasks, logs, habit_summaries):
+def weekly_reflection(tasks, logs, habit_summaries, user_name=None, now=None):
+    now = now or datetime.utcnow()
+    ai_reflection = _generate_ai_weekly_reflection(
+        tasks, logs, habit_summaries, user_name=user_name, now=now
+    )
+    if ai_reflection:
+        return ai_reflection
+    return _fallback_weekly_reflection(tasks, logs, habit_summaries)
+
+
+def _fallback_weekly_reflection(tasks, logs, habit_summaries):
     total = len(tasks)
     completed = sum(1 for task in tasks if getattr(task, "status", "") == "Completed")
     completion_rate = int((completed / total) * 100) if total else 0
@@ -427,6 +467,97 @@ def weekly_reflection(tasks, logs, habit_summaries):
         lines.append("Keep protecting your best focus hours for the work that matters most.")
 
     return lines
+
+
+def _generate_ai_weekly_reflection(tasks, logs, habit_summaries, user_name=None, now=None):
+    settings = _resolve_ai_settings()
+    if not settings:
+        return None
+
+    now = now or datetime.utcnow()
+    creative_direction = random.choice([
+        "encouraging and grounded",
+        "clear and insightful",
+        "warm and strategic",
+        "steady and motivating",
+    ])
+
+    context = _build_weekly_reflection_context(
+        tasks, logs, habit_summaries, user_name=user_name, now=now
+    )
+    payload = {
+        "model": settings["model"],
+        "input": [
+            {
+                "role": "system",
+                "content": (
+                    "You write short weekly reflection summaries for a productivity dashboard. "
+                    "Keep the tone warm, specific, and practical. "
+                    "Respond with valid JSON only."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Write a weekly reflection in a {creative_direction} tone.\n"
+                    "Return JSON with exactly one key: lines.\n"
+                    "Constraints:\n"
+                    "- lines must be an array of 3 or 4 strings.\n"
+                    "- Each line should be under 140 characters.\n"
+                    "- Include one performance insight, one habit insight, and one practical next-step suggestion.\n"
+                    "- Avoid markdown, emojis, hashtags, and quotation marks.\n"
+                    "- Make the reflection feel specific to this week's data.\n\n"
+                    f"{context}\n"
+                    f"Variation seed: {random.randint(1000, 999999)}"
+                ),
+            },
+        ],
+        "temperature": 0.9,
+        "max_output_tokens": 220,
+    }
+
+    req = request.Request(
+        f"{settings['base_url']}/responses",
+        data=json.dumps(payload).encode("utf-8"),
+        headers=_build_ai_headers(settings["api_key"], settings["provider"]),
+        method="POST",
+    )
+
+    try:
+        with request.urlopen(req, timeout=8) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except error.HTTPError as exc:
+        logger.warning("Weekly reflection AI request failed with HTTP %s", exc.code)
+        return None
+    except (error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        logger.warning("Weekly reflection AI request failed: %s", exc)
+        return None
+
+    parsed = _extract_response_text(data)
+    if not parsed:
+        return None
+
+    try:
+        content = json.loads(parsed)
+    except json.JSONDecodeError:
+        return None
+
+    lines = content.get("lines")
+    if not isinstance(lines, list):
+        return None
+
+    cleaned_lines = []
+    for line in lines[:4]:
+        if not isinstance(line, str):
+            continue
+        cleaned = " ".join(line.split()).strip()[:140]
+        if cleaned:
+            cleaned_lines.append(cleaned)
+
+    if len(cleaned_lines) < 3:
+        return None
+
+    return cleaned_lines
 
 
 def generate_daily_intention(tasks, logs, habit_summaries, user_name=None, now=None):
@@ -503,13 +634,11 @@ def _fallback_daily_intention(tasks, logs, habit_summaries, user_name=None, now=
 
 
 def _generate_ai_daily_intention(tasks, logs, habit_summaries, user_name=None, now=None):
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
+    settings = _resolve_ai_settings()
+    if not settings:
         return None
 
     now = now or datetime.utcnow()
-    base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
-    model = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
     creative_direction = random.choice([
         "gentle and reflective",
         "calm and motivating",
@@ -520,7 +649,7 @@ def _generate_ai_daily_intention(tasks, logs, habit_summaries, user_name=None, n
 
     context = _build_intention_context(tasks, logs, habit_summaries, user_name=user_name, now=now)
     payload = {
-        "model": model,
+        "model": settings["model"],
         "input": [
             {
                 "role": "system",
@@ -553,19 +682,20 @@ def _generate_ai_daily_intention(tasks, logs, habit_summaries, user_name=None, n
     }
 
     req = request.Request(
-        f"{base_url}/responses",
+        f"{settings['base_url']}/responses",
         data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
+        headers=_build_ai_headers(settings["api_key"], settings["provider"]),
         method="POST",
     )
 
     try:
         with request.urlopen(req, timeout=8) as response:
             data = json.loads(response.read().decode("utf-8"))
-    except (error.URLError, error.HTTPError, TimeoutError, json.JSONDecodeError):
+    except error.HTTPError as exc:
+        logger.warning("Daily intention AI request failed with HTTP %s", exc.code)
+        return None
+    except (error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        logger.warning("Daily intention AI request failed: %s", exc)
         return None
 
     parsed = _extract_response_text(data)
@@ -617,6 +747,34 @@ def _build_intention_context(tasks, logs, habit_summaries, user_name=None, now=N
     ])
 
 
+def _build_weekly_reflection_context(tasks, logs, habit_summaries, user_name=None, now=None):
+    now = now or datetime.utcnow()
+    total = len(tasks)
+    completed_tasks = [task for task in tasks if getattr(task, "status", "") == "Completed"]
+    pending_tasks = [task for task in tasks if getattr(task, "status", "") != "Completed"]
+    completion_rate = int((len(completed_tasks) / total) * 100) if total else 0
+    avg_habit = int(sum(item["percentage"] for item in habit_summaries) / len(habit_summaries)) if habit_summaries else 0
+    strongest_habit = max(habit_summaries, key=lambda item: item["streak"], default=None)
+    top_pending = sorted(pending_tasks, key=compute_priority_score, reverse=True)[:3]
+    recent_wins = build_recent_completion_feed(tasks, logs, limit=3)
+
+    return "\n".join([
+        f"User: {user_name or 'Planner user'}",
+        f"Week ending: {now.strftime('%A, %B %d')}",
+        f"Total tasks: {total}",
+        f"Completed tasks: {len(completed_tasks)}",
+        f"Completion rate: {completion_rate}%",
+        "Recent wins: " + (", ".join(item["title"] for item in recent_wins) or "None"),
+        "Top pending tasks: " + (", ".join(getattr(task, "title", "Task") for task in top_pending) or "None"),
+        f"Most productive day: {most_productive_day(logs)}",
+        f"Average habit consistency: {avg_habit}%",
+        "Strongest habit: " + (
+            f"{strongest_habit['habit'].title} ({strongest_habit['streak']} day streak)"
+            if strongest_habit else "None"
+        ),
+    ])
+
+
 def _extract_response_text(data):
     if isinstance(data, dict):
         if isinstance(data.get("output_text"), str) and data["output_text"].strip():
@@ -628,6 +786,263 @@ def _extract_response_text(data):
                 if isinstance(text, str) and text.strip():
                     return text.strip()
     return None
+
+
+def _build_task_notifications(tasks, now):
+    notifications = []
+    pending_tasks = [
+        task for task in tasks
+        if getattr(task, "status", "") in {"Pending", "In Progress"}
+    ]
+
+    for task in pending_tasks:
+        due_at = getattr(task, "deadline", None)
+        start_at = getattr(task, "start_time", None)
+
+        if due_at:
+            delta = due_at - now
+            hours_left = delta.total_seconds() / 3600
+            if hours_left <= 0:
+                notifications.append(_notification(
+                    kind="task",
+                    severity="critical",
+                    title=f"{task.title} is overdue",
+                    body=f"The deadline passed {_format_relative_time(due_at, now)}. Wrap this up or reschedule it now.",
+                    when_label=f"Deadline {due_at.strftime('%b %d at %I:%M %p')}",
+                    meta="Pending task",
+                    sort_at=due_at,
+                ))
+            elif hours_left <= 6:
+                notifications.append(_notification(
+                    kind="task",
+                    severity="high",
+                    title=f"Start {task.title} soon",
+                    body=f"It is due {_format_relative_time(due_at, now)}. This is a strong candidate for your next work block.",
+                    when_label=f"Due {due_at.strftime('%b %d at %I:%M %p')}",
+                    meta="Pending task",
+                    sort_at=due_at,
+                ))
+            elif hours_left <= 24:
+                notifications.append(_notification(
+                    kind="task",
+                    severity="medium",
+                    title=f"{task.title} is due today",
+                    body=f"Keep time open for it before the deadline arrives {_format_relative_time(due_at, now)}.",
+                    when_label=f"Due {due_at.strftime('%b %d at %I:%M %p')}",
+                    meta="Pending task",
+                    sort_at=due_at,
+                ))
+        elif start_at:
+            delta = start_at - now
+            hours_until = delta.total_seconds() / 3600
+            if hours_until <= 0:
+                notifications.append(_notification(
+                    kind="task",
+                    severity="high",
+                    title=f"{task.title} should be in progress",
+                    body=f"The scheduled start was {_format_relative_time(start_at, now)}. Jump in now or move it to a realistic time.",
+                    when_label=f"Start time {start_at.strftime('%b %d at %I:%M %p')}",
+                    meta="Scheduled task",
+                    sort_at=start_at,
+                ))
+            elif hours_until <= 2:
+                notifications.append(_notification(
+                    kind="task",
+                    severity="medium",
+                    title=f"{task.title} starts soon",
+                    body=f"Your scheduled work block begins {_format_relative_time(start_at, now)}. Get set up before it starts.",
+                    when_label=f"Starts {start_at.strftime('%b %d at %I:%M %p')}",
+                    meta="Scheduled task",
+                    sort_at=start_at,
+                ))
+
+    return notifications
+
+
+def _build_habit_notifications(habits, habit_entries, habit_summaries, today):
+    notifications = []
+    completed_today = {
+        entry.habit_id
+        for entry in habit_entries
+        if getattr(entry, "completed", False) and getattr(entry, "entry_date", None) == today
+    }
+
+    for summary in habit_summaries:
+        habit = summary["habit"]
+        if habit.id in completed_today:
+            continue
+
+        streak = summary["streak"]
+        if streak >= 3:
+            body = f"You have a {streak}-day streak going. Check in today to keep that momentum alive."
+            severity = "medium"
+        else:
+            body = "A quick check-in today keeps this habit visible and easier to repeat tomorrow."
+            severity = "low"
+
+        notifications.append(_notification(
+            kind="habit",
+            severity=severity,
+            title=f"Remember your {habit.title} habit",
+            body=body,
+            when_label="Due today",
+            meta=f"Habit in {habit.category}",
+            sort_at=datetime.combine(today, time(20, 0)),
+        ))
+
+    return notifications
+
+
+def _build_goal_notifications(goal_progress, today):
+    notifications = []
+    for item in goal_progress:
+        goal = item["goal"]
+        current = item["current"]
+        target = max(getattr(goal, "target_value", 1) or 1, 1)
+        remaining = max(target - current, 0)
+        if remaining <= 0:
+            continue
+
+        if getattr(goal, "period", "Weekly") == "Daily":
+            severity = "high"
+            when_label = "Ends today"
+        elif goal.period == "Weekly":
+            severity = "medium"
+            when_label = f"Week ends { _end_of_week(today).strftime('%b %d') }"
+        else:
+            severity = "low"
+            when_label = f"Month ends { _end_of_month(today).strftime('%b %d') }"
+
+        notifications.append(_notification(
+            kind="goal",
+            severity=severity,
+            title=f"Progress needed for {goal.title}",
+            body=f"You are at {current}/{target}. You still need {remaining} more to hit this {goal.period.lower()} goal.",
+            when_label=when_label,
+            meta=f"{goal.period} goal",
+            sort_at=datetime.combine(today, time(21, 0)),
+        ))
+
+    return notifications
+
+
+def _build_event_notifications(calendar_events, today):
+    notifications = []
+    for event in calendar_events:
+        event_day = getattr(event, "event_date", None)
+        if not event_day:
+            continue
+
+        days_until = (event_day - today).days
+        if days_until < 0 or days_until > 3:
+            continue
+
+        if days_until == 0:
+            severity = "high"
+            title = f"{event.title} is today"
+            body = (event.notes or "You planned this for today. Make room for it before the day fills up.")[:220]
+            when_label = f"Today, {event_day.strftime('%b %d')}"
+        elif days_until == 1:
+            severity = "medium"
+            title = f"{event.title} is tomorrow"
+            body = (event.notes or "This event is coming up tomorrow, so it is worth preparing for today.")[:220]
+            when_label = f"Tomorrow, {event_day.strftime('%b %d')}"
+        else:
+            severity = "low"
+            title = f"{event.title} is coming up"
+            body = (event.notes or f"This event is {days_until} days away. A little prep now will make it easier.")[:220]
+            when_label = event_day.strftime('%A, %b %d')
+
+        notifications.append(_notification(
+            kind="event",
+            severity=severity,
+            title=title,
+            body=body,
+            when_label=when_label,
+            meta=f"{getattr(event, 'event_type', 'Event')} event",
+            sort_at=datetime.combine(event_day, time.min),
+        ))
+
+    return notifications
+
+
+def _notification(kind, severity, title, body, when_label, meta, sort_at=None):
+    return {
+        "kind": kind,
+        "severity": severity,
+        "title": title,
+        "body": body,
+        "when_label": when_label,
+        "meta": meta,
+        "sort_at": sort_at,
+    }
+
+
+def _notification_rank(severity):
+    return {"critical": 0, "high": 1, "medium": 2, "low": 3}.get(severity, 4)
+
+
+def _format_relative_time(target, now):
+    delta_seconds = int((target - now).total_seconds())
+    tense = "from now" if delta_seconds >= 0 else "ago"
+    minutes = max(1, abs(delta_seconds) // 60)
+
+    if minutes < 60:
+        value = minutes
+        unit = "minute"
+    elif minutes < 1440:
+        value = minutes // 60
+        unit = "hour"
+    else:
+        value = minutes // 1440
+        unit = "day"
+
+    suffix = "" if value == 1 else "s"
+    return f"in {value} {unit}{suffix}" if tense == "from now" else f"{value} {unit}{suffix} ago"
+
+
+def _end_of_week(today):
+    return today + timedelta(days=(6 - today.weekday()))
+
+
+def _end_of_month(today):
+    next_month = today.replace(day=28) + timedelta(days=4)
+    return next_month - timedelta(days=next_month.day)
+
+
+def _resolve_ai_settings():
+    api_key = os.getenv("OPENAI_API_KEY") or os.getenv("OPENROUTER_API_KEY")
+    if not api_key:
+        return None
+
+    is_openrouter = api_key.startswith("sk-or-v1-")
+    provider = "openrouter" if is_openrouter else "openai"
+    base_url = os.getenv("OPENAI_BASE_URL")
+    model = os.getenv("OPENAI_MODEL")
+
+    if not base_url:
+        base_url = "https://openrouter.ai/api/v1" if is_openrouter else "https://api.openai.com/v1"
+
+    if not model:
+        model = "openai/gpt-4.1-mini" if is_openrouter else "gpt-4.1-mini"
+
+    return {
+        "api_key": api_key,
+        "base_url": base_url.rstrip("/"),
+        "model": model,
+        "provider": provider,
+    }
+
+
+def _build_ai_headers(api_key, provider):
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    if provider == "openrouter":
+        headers["HTTP-Referer"] = os.getenv("OPENROUTER_REFERER", "http://localhost")
+        headers["X-Title"] = os.getenv("OPENROUTER_TITLE", "WeeklyAI")
+    return headers
 
 
 def next_occurrence(day_of_week, hour_of_day):

@@ -31,6 +31,11 @@ def ai_recommendations():
         recommendations=recs,
         burnout_warning=burnout_warning,
         overload_days=overload_days,
-        weekly_reflection=weekly_reflection(all_tasks, logs, habit_summaries),
+        weekly_reflection=weekly_reflection(
+            all_tasks,
+            logs,
+            habit_summaries,
+            user_name=getattr(current_user, "name", None),
+        ),
         gamification=compute_gamification(all_tasks, habit_summaries),
     )

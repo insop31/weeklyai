@@ -9,6 +9,7 @@ from routes.ai import ai_bp
 from datetime import datetime, timedelta
 import sys
 from insights import (
+    build_user_notifications,
     build_recent_completion_feed,
     compute_gamification,
     compute_goal_progress,
@@ -159,11 +160,26 @@ def create_app(env="development"):
         ).limit(20).all()
         habits = Habit.query.filter_by(user_id=current_user.id).all()
         habit_entries = HabitEntry.query.filter_by(user_id=current_user.id).all()
+        goals = Goal.query.filter_by(user_id=current_user.id).all()
+        calendar_events = CalendarEvent.query.filter_by(user_id=current_user.id).order_by(
+            CalendarEvent.event_date.asc(),
+            CalendarEvent.created_at.asc()
+        ).all()
+        habit_summaries = summarize_habits(habits, habit_entries)
         return render_template(
             "messages.html",
             tasks=tasks,
             logs=logs,
-            weekly_reflection=weekly_reflection(tasks, logs, summarize_habits(habits, habit_entries)),
+            notifications=build_user_notifications(
+                tasks,
+                logs,
+                habits,
+                habit_entries,
+                goals,
+                calendar_events,
+                user_name=getattr(current_user, "name", None),
+            ),
+            weekly_reflection=weekly_reflection(tasks, logs, habit_summaries),
         )
 
     app.register_blueprint(main_bp)

@@ -4,8 +4,8 @@
 
 {% block content %}
 <div class="panel-card message-intro">
-  <div class="chart-card-title">Recent activity</div>
-  <div class="chart-card-sub">This view uses your task activity log so the Messages tab opens a real page instead of a dead link.</div>
+  <div class="chart-card-title">Notifications</div>
+  <div class="chart-card-sub">Stay on top of what needs attention next across tasks, habits, goals, and calendar events.</div>
 </div>
 
 {% if weekly_reflection %}
@@ -19,7 +19,40 @@
 </div>
 {% endif %}
 
+{% if notifications %}
+<div class="message-list">
+  {% for item in notifications %}
+  <article class="message-row">
+    <div class="message-avatar message-avatar--{{ item.severity }}">
+      {% if item.kind == 'task' %}T{% elif item.kind == 'habit' %}H{% elif item.kind == 'goal' %}G{% else %}E{% endif %}
+    </div>
+    <div class="message-body">
+      <div class="message-topline">
+        <div class="message-title">{{ item.title }}</div>
+        <span class="message-badge message-badge--{{ item.severity }}">{{ item.severity }}</span>
+      </div>
+      <div class="message-text">{{ item.body }}</div>
+      <div class="message-meta">
+        <span>{{ item.meta }}</span>
+        <span>{{ item.when_label }}</span>
+      </div>
+    </div>
+  </article>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+  <div class="empty-title">No reminders right now</div>
+  <div class="empty-sub">You are clear for the moment. New prompts will appear here as tasks, habits, goals, and events become time-sensitive.</div>
+</div>
+{% endif %}
+
 {% if logs %}
+<div class="panel-card message-history-head">
+  <div class="chart-card-title">Recent activity</div>
+  <div class="chart-card-sub">Your latest completion history is still here for quick reference.</div>
+</div>
+
 <div class="message-list">
   {% for log in logs %}
   <article class="message-row">
@@ -36,11 +69,6 @@
     </div>
   </article>
   {% endfor %}
-</div>
-{% else %}
-<div class="empty-state">
-  <div class="empty-title">No messages yet</div>
-  <div class="empty-sub">Task updates and activity history will appear here after you start completing work.</div>
 </div>
 {% endif %}
 {% endblock %}
