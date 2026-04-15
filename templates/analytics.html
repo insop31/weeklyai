@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Analytics - WeeklyAI{% endblock %}
+{% block title %}Analytics - TaskNova{% endblock %}
 {% block page_title %}Your Insights{% endblock %}
 
 {% block head %}
@@ -125,6 +125,10 @@
 document.addEventListener('DOMContentLoaded', () => {
   const data = JSON.parse(document.getElementById('analytics-data').textContent);
   initAnalyticsCharts(data);
+
+  document.addEventListener('themechange', () => {
+    initAnalyticsCharts(data);
+  });
 });
 </script>
 {% endblock %}

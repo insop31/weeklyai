@@ -16,6 +16,24 @@ def priority_to_color(priority):
     }
     return mapping.get(priority, "purple")
 
+
+def serialize_task(task):
+    return {
+        "id": task.id,
+        "title": task.title,
+        "category": task.category,
+        "priority": task.priority,
+        "status": task.status,
+        "color": priority_to_color(task.priority),
+        "start_time": task.start_time.isoformat() if task.start_time else None,
+        "end_time": task.end_time.isoformat() if task.end_time else None,
+        "tags": [tag.name for tag in task.tags],
+        "deadline": task.deadline.isoformat() if task.deadline else None,
+        "estimated_time": task.estimated_time,
+        "attendees": task.attendees,
+        "smart_priority": compute_priority_score(task),
+    }
+
 @tasks_bp.route("/add_task", methods=["POST"])
 @login_required
 def add_task():
@@ -60,27 +78,30 @@ def get_tasks():
             getattr(task, "deadline", None) or getattr(task, "start_time", None) or getattr(task, "created_at", datetime.utcnow()),
         ),
     )
-    return jsonify([{
-        "id": t.id, "title": t.title, "category": t.category,
-        "priority": t.priority, "status": t.status, "color": priority_to_color(t.priority),
-        "start_time": t.start_time.isoformat() if t.start_time else None,
-        "end_time":   t.end_time.isoformat()   if t.end_time   else None,
-        "tags": [tag.name for tag in t.tags],
-        "deadline": t.deadline.isoformat() if t.deadline else None,
-        "smart_priority": compute_priority_score(t),
-    } for t in tasks])
+    return jsonify([serialize_task(task) for task in tasks])
 
 
 @tasks_bp.route("/update_task/<int:task_id>", methods=["PUT"])
 @login_required
 def update_task(task_id):
     task = Task.query.filter_by(id=task_id, user_id=current_user.id).first_or_404()
-    data = request.get_json()
+    data = request.get_json() or {}
     previous_status = task.status
 
-    for field in ["title", "category", "priority", "status"]:
+    for field in ["title", "priority", "status"]:
         if field in data:
             setattr(task, field, data[field])
+
+    if any(field in data for field in ["title", "category", "tags"]):
+        inferred_category, inferred_tags = infer_task_metadata(
+            data.get("title", task.title),
+            data.get("category", task.category),
+            data.get("tags", ", ".join(tag.name for tag in task.tags)),
+        )
+        task.category = inferred_category
+        task.tags.clear()
+        for tag in inferred_tags:
+            task.tags.append(TaskTag(user_id=current_user.id, name=tag))
 
     if "priority" in data:
         task.color = priority_to_color(task.priority)
@@ -89,6 +110,12 @@ def update_task(task_id):
         task.start_time = datetime.fromisoformat(data["start_time"]) if data["start_time"] else None
     if "end_time" in data:
         task.end_time   = datetime.fromisoformat(data["end_time"]) if data["end_time"] else None
+    if "deadline" in data:
+        task.deadline = datetime.fromisoformat(data["deadline"]) if data["deadline"] else None
+    if "estimated_time" in data:
+        task.estimated_time = float(data["estimated_time"]) if data["estimated_time"] else None
+    if "attendees" in data:
+        task.attendees = int(data["attendees"]) if data["attendees"] else 1
 
     # Log completion to activity_log
     if data.get("status") == "Completed" and previous_status != "Completed":
@@ -119,16 +146,16 @@ def update_task(task_id):
     logs = ActivityLog.query.filter_by(user_id=current_user.id).all()
     habits = Habit.query.filter_by(user_id=current_user.id).all()
     habit_entries = HabitEntry.query.filter_by(user_id=current_user.id).all()
-    gamification = compute_gamification(tasks, summarize_habits(habits, habit_entries))
+    gamification = compute_gamification(
+        tasks,
+        summarize_habits(habits, habit_entries),
+        user_name=getattr(current_user, "name", None),
+    )
     recent_completions = build_recent_completion_feed(tasks, logs)
 
     return jsonify({
         "success": True,
-        "task": {
-            "id": task.id,
-            "title": task.title,
-            "status": task.status,
-        },
+        "task": serialize_task(task),
         "gamification": gamification,
         "recent_completions": recent_completions,
     })
@@ -152,6 +179,84 @@ def move_task(task_id):
     task.end_time   = datetime.fromisoformat(data["end_time"])
     db.session.commit()
     return jsonify({"success": True})
+
+
+@tasks_bp.route("/repeat_day_schedule", methods=["POST"])
+@login_required
+def repeat_day_schedule():
+    """
+    Copy all tasks from a single source_date and place them on
+    `repeat_times` additional days within the same week (Mon–Sun).
+    Each copy lands on the next calendar day after the source day,
+    wrapping into the following week if needed.
+    """
+    data = request.get_json() or {}
+    source_date_raw = data.get("source_date")
+    if not source_date_raw:
+        return jsonify({"success": False, "error": "source_date required"}), 400
+
+    try:
+        repeat_times = max(1, min(int(data.get("repeat_times", 1)), 6))
+        source_dt = datetime.fromisoformat(source_date_raw)
+        source_day_start = source_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+        source_day_end   = source_day_start + timedelta(days=1)
+    except (ValueError, TypeError):
+        return jsonify({"success": False, "error": "invalid_date"}), 400
+
+    # Grab all tasks on that day
+    source_tasks = Task.query.filter(
+        Task.user_id    == current_user.id,
+        Task.start_time >= source_day_start,
+        Task.start_time <  source_day_end,
+    ).order_by(Task.start_time.asc()).all()
+
+    if not source_tasks:
+        return jsonify({"success": True, "created_count": 0, "tasks": []})
+
+    created_tasks = []
+
+    for rep in range(1, repeat_times + 1):
+        shift = timedelta(days=rep)
+        for task in source_tasks:
+            new_start = task.start_time + shift if task.start_time else None
+            new_end   = task.end_time   + shift if task.end_time   else None
+
+            # Skip if a task with same title already exists at that time
+            if new_start and Task.query.filter_by(
+                user_id=current_user.id,
+                title=task.title,
+                start_time=new_start,
+            ).first():
+                continue
+
+            copy = Task(
+                user_id        = current_user.id,
+                title          = task.title,
+                category       = task.category,
+                priority       = task.priority,
+                deadline       = task.deadline + shift if task.deadline else None,
+                start_time     = new_start,
+                end_time       = new_end,
+                estimated_time = task.estimated_time,
+                status         = "Pending",
+                color          = priority_to_color(task.priority),
+                attendees      = task.attendees,
+            )
+            db.session.add(copy)
+            db.session.flush()
+
+            for tag in task.tags:
+                db.session.add(TaskTag(task_id=copy.id, user_id=current_user.id, name=tag.name))
+
+            created_tasks.append(copy)
+
+    db.session.commit()
+
+    return jsonify({
+        "success":       True,
+        "created_count": len(created_tasks),
+        "tasks":         [serialize_task(t) for t in created_tasks],
+    })
 
 
 @tasks_bp.route("/smart_reschedule/<int:task_id>", methods=["POST"])

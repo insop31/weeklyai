@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Register — WeeklyAI</title>
+  <title>Register — TaskNova</title>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"/>
@@ -15,8 +15,11 @@
 
     <!-- Logo -->
     <div class="auth-logo">
-      <div class="logo-circle">W</div>
-      <span class="auth-app-name">WeeklyAI</span>
+      <img
+        src="{{ url_for('static', filename='img/logo.png') }}"
+        alt="TaskNova logo"
+        class="app-logo app-logo--auth"/>
+      <span class="auth-app-name">TaskNova</span>
     </div>
     <p class="auth-subtitle">Create your account</p>
 

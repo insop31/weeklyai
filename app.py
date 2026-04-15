@@ -69,7 +69,11 @@ def create_app(env="development"):
 
         habit_summaries = summarize_habits(habits, habit_entries)
         goal_progress = compute_goal_progress(goals, tasks, habit_summaries)
-        gamification = compute_gamification(tasks, habit_summaries)
+        gamification = compute_gamification(
+            tasks,
+            habit_summaries,
+            user_name=getattr(current_user, "name", None),
+        )
         gamification["recent_completions"] = build_recent_completion_feed(tasks, logs)
         overload_days, burnout_warning = detect_overload(tasks)
         urgent_tasks = sorted(
@@ -132,8 +136,17 @@ def create_app(env="development"):
     @main_bp.route("/task-list")
     @login_required
     def task_list():
-        tasks = Task.query.filter_by(user_id=current_user.id).order_by(
-        ).all()
+        now = datetime.utcnow()
+        start_of_week = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+        end_of_week = start_of_week + timedelta(days=7)
+
+        all_user_tasks = Task.query.filter_by(user_id=current_user.id).all()
+        tasks = []
+        for task in all_user_tasks:
+            task_date = getattr(task, "start_time", None) or getattr(task, "deadline", None) or getattr(task, "created_at", now)
+            if start_of_week <= task_date < end_of_week:
+                tasks.append(task)
+
         tasks = sorted(
             tasks,
             key=lambda task: (
@@ -147,7 +160,11 @@ def create_app(env="development"):
         return render_template(
             "tasks.html",
             tasks=tasks,
-            gamification=compute_gamification(tasks, summarize_habits(habits, habit_entries)),
+            gamification=compute_gamification(
+                tasks,
+                summarize_habits(habits, habit_entries),
+                user_name=getattr(current_user, "name", None),
+            ),
             smart_priority_scores={task.id: compute_priority_score(task) for task in tasks},
         )
 

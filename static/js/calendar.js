@@ -22,7 +22,7 @@ function initCalendar() {
     try {
       allTasks = JSON.parse(dataEl.textContent);
     } catch (error) {
-      console.error("WeeklyAI: failed to parse task data", error);
+      console.error("TaskNova: failed to parse task data", error);
       allTasks = [];
     }
   }
@@ -32,7 +32,7 @@ function initCalendar() {
     try {
       calendarEvents = JSON.parse(eventEl.textContent);
     } catch (error) {
-      console.error("WeeklyAI: failed to parse calendar event data", error);
+      console.error("TaskNova: failed to parse calendar event data", error);
       calendarEvents = [];
     }
   }
@@ -259,6 +259,13 @@ function placeTaskCard(container, task) {
   if (task.status === "Completed") card.classList.add("card-done");
   card.style.cssText = `top:${topPx}px; height:${heightPx}px;`;
   card.dataset.taskId = task.id;
+  card.title = "Click to edit task";
+  card.style.cursor = "pointer";
+  card.addEventListener("click", () => {
+    if (typeof window.openTaskEditor === "function") {
+      window.openTaskEditor(task);
+    }
+  });
 
   const timeLabel = `${formatTime(start)} - ${formatTime(end)}`;
   const bubbleCount = Math.min(task.attendees || 1, 3);
@@ -533,6 +540,7 @@ function renderSelectedDateEvents() {
   dateTasks.forEach((task) => {
     const row = document.createElement("div");
     row.className = "selected-date-item";
+    row.style.cursor = "pointer";
     row.innerHTML = `
       <div class="selected-date-inline">
         <span class="mini-type-icon">${taskMiniTag(task)}</span>
@@ -540,9 +548,34 @@ function renderSelectedDateEvents() {
       </div>
       <div class="selected-date-item-meta">${escapeHtml(task.priority || "Medium")} priority task</div>
     `;
+    row.addEventListener("click", () => {
+      if (typeof window.openTaskEditor === "function") {
+        window.openTaskEditor(task);
+      }
+    });
     list.appendChild(row);
   });
 }
+
+window.handleTaskUpdated = function handleTaskUpdated(updatedTask, payload) {
+  const index = allTasks.findIndex((task) => task.id === updatedTask.id);
+  if (index !== -1) {
+    allTasks[index] = {
+      ...allTasks[index],
+      ...updatedTask,
+    };
+  }
+
+  renderCalendarView();
+  renderMiniCal();
+  renderSelectedDateEvents();
+
+  if (payload && typeof refreshGamificationPanelFromPayload === "function") {
+    refreshGamificationPanelFromPayload(payload);
+  }
+
+  showToast("Task updated");
+};
 
 function getWeekDates(offset) {
   const today = new Date();
@@ -563,6 +596,25 @@ function getDayDate(offset) {
   date.setDate(date.getDate() + offset);
   return date;
 }
+
+window.getCurrentVisibleWeekStart = function getCurrentVisibleWeekStart() {
+  let anchorDate;
+
+  if (currentViewMode === "daily") {
+    anchorDate = getDayDate(currentDayOffset);
+  } else if (currentViewMode === "monthly" && selectedMiniDate) {
+    anchorDate = new Date(`${selectedMiniDate}T00:00:00`);
+  } else {
+    anchorDate = getWeekDates(currentWeekOffset)[0];
+  }
+
+  const monday = new Date(anchorDate);
+  const day = monday.getDay();
+  const diffToMon = day === 0 ? -6 : 1 - day;
+  monday.setDate(monday.getDate() + diffToMon);
+  monday.setHours(0, 0, 0, 0);
+  return `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, "0")}-${String(monday.getDate()).padStart(2, "0")}T00:00:00`;
+};
 
 function isSameDay(a, b) {
   return (

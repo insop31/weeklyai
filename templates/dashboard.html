@@ -1,6 +1,17 @@
 {% extends "base.html" %}
-{% block title %}Adaptive AI Planner — WeeklyAI{% endblock %}
-{% block page_title %}Adaptive AI Planner{% endblock %}
+{% block title %}TaskNova — Dashboard{% endblock %}
+{% block page_title %}
+<span class="brand-lockup">
+  <img
+    src="{{ url_for('static', filename='img/logo.png') }}"
+    alt="TaskNova logo"
+    class="brand-lockup-logo"/>
+  <span class="brand-lockup-copy">
+    <span class="brand-gradient">TaskNova</span>
+    <span class="brand-caption">Your adaptive AI planner</span>
+  </span>
+</span>
+{% endblock %}
 
 {% block content %}
 
@@ -12,15 +23,15 @@
   'action': 'Refresh intention'
 }, true) %}
 
-{# ── Build the 7-day week array centred on today ── #}
+{# â”€â”€ Build the 7-day week array centred on today â”€â”€ #}
 {% set today = now.date() if now is defined else [] %}
 {% set days_labels = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] %}
 
 <div class="dashboard-layout">
 
-  <!-- ══════════════════════════════════════
-       LEFT PANEL — mini calendar + checklists
-  ══════════════════════════════════════ -->
+  <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+       LEFT PANEL â€” mini calendar + checklists
+  â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
   <aside class="left-panel">
 
     <!-- Mini Calendar -->
@@ -65,7 +76,7 @@
     {% for cal_list in cal_lists %}
     <div class="panel-card checklist-card">
       <div class="checklist-header">
-        <span class="checklist-title">{% if loop.first %}Adaptive AI Planner{% else %}{{ cal_list.name }}{% endif %}</span>
+        <span class="checklist-title {% if loop.first %}checklist-title--brand{% endif %}">{% if loop.first %}TaskNova{% else %}{{ cal_list.name }}{% endif %}</span>
         {% if loop.first %}
           <span class="checklist-badge">Checklist</span>
         {% else %}
@@ -130,7 +141,14 @@
         </button>
         <div class="habit-copy">
           <div class="habit-title">{{ item.habit.title }}</div>
-          <div class="habit-meta">{{ item.streak }} day streak • {{ item.percentage }}% this week</div>
+          <div class="habit-meta">
+            {% if item.streak > 0 %}
+              {{ item.streak }} day{{ '' if item.streak == 1 else 's' }} streak
+            {% else %}
+              No active streak
+            {% endif %}
+            &bull; {{ item.percentage }}% this week
+          </div>
         </div>
       </div>
       {% else %}
@@ -167,7 +185,7 @@
       {% for item in goal_progress %}
       <div class="goal-row">
         <div class="goal-title">{{ item.goal.title }}</div>
-        <div class="goal-meta">{{ item.goal.period }} goal • {{ item.current }}/{{ item.goal.target_value }}</div>
+        <div class="goal-meta">{{ item.goal.period }} goal &bull; {{ item.current }}/{{ item.goal.target_value }}</div>
         <div class="prob-bar-track">
           <div class="prob-bar-fill" style="width: {{ item.percentage }}%"></div>
         </div>
@@ -229,6 +247,22 @@
         <span class="badge-pill">{{ badge }}</span>
         {% endfor %}
       </div>
+      <div class="completion-feed">
+        <div class="completion-feed-title">Active quests</div>
+        <div class="completion-feed-list" id="gamificationTaskList">
+          {% for item in gamification.active_tasks %}
+          <div class="completion-feed-item" data-task-id="{{ item.id }}">
+            <div class="completion-feed-main">
+              <div class="completion-feed-task">{{ item.title }}</div>
+              <div class="completion-feed-meta">{{ item.category }} • {{ item.status }}</div>
+            </div>
+            <span class="completion-feed-xp completion-feed-xp--priority">{{ item.score }}</span>
+          </div>
+          {% else %}
+          <div class="completion-feed-empty" id="gamificationTaskEmpty">Add a task to turn it into your next quest.</div>
+          {% endfor %}
+        </div>
+      </div>
       <div class="completion-feed" id="completionFeed">
         <div class="completion-feed-title">Recent wins</div>
         <div class="completion-feed-list" id="completionFeedList">
@@ -277,9 +311,9 @@
 
   </aside>
 
-  <!-- ══════════════════════════════════════
-       CALENDAR GRID — weekly view
-  ══════════════════════════════════════ -->
+  <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+       CALENDAR GRID â€” weekly view
+  â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
   <section class="calendar-section">
     <div class="daily-intention-shell" id="dailyIntentionCard">
       <div class="daily-intention-copy">
@@ -384,6 +418,12 @@
     <div class="grid-header-row">
       <span class="grid-date-label" id="gridDateLabel"></span>
       <div class="grid-header-right">
+        <button class="grid-repeat-btn" id="repeatDayBtn" type="button" onclick="openRepeatDayModal()">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" style="margin-right:5px;vertical-align:-1px">
+            <path d="M2 6.5A4.5 4.5 0 1 0 6.5 2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+            <path d="M2 2.5V6.5H6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>Repeat Day
+        </button>
         <button class="grid-today-btn" onclick="goToToday()">Today</button>
         <button class="grid-nav-btn" id="gridPrev">&#8249;</button>
         <button class="grid-nav-btn" id="gridNext">&#8250;</button>
@@ -405,7 +445,7 @@
           {% endfor %}
         </div>
 
-        <!-- Day columns — rendered by calendar.js using task data below -->
+        <!-- Day columns â€” rendered by calendar.js using task data below -->
         {% for label in days_labels %}
         <div class="day-column" id="day-col-{{ loop.index0 }}">
           <div class="day-col-header" id="day-header-{{ loop.index0 }}">
@@ -468,6 +508,57 @@
         <button type="submit" class="btn-save">Save Event</button>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- Repeat Day Modal -->
+<div id="repeat-day-modal-overlay" class="modal-overlay" onclick="closeRepeatDayModal(event)">
+  <div class="modal-card repeat-day-modal-card" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <span class="modal-title">
+        <svg width="15" height="15" viewBox="0 0 13 13" fill="none" style="margin-right:6px;vertical-align:-2px">
+          <path d="M2 6.5A4.5 4.5 0 1 0 6.5 2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+          <path d="M2 2.5V6.5H6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>Repeat Day's Tasks
+      </span>
+      <button class="modal-close" type="button" onclick="closeRepeatDayModal()">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <path d="M1 1l12 12M13 1L1 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </div>
+
+    <p class="repeat-day-hint">Choose a day that already has tasks scheduled. Those tasks will be copied to the next <em>X</em> consecutive days.</p>
+
+    <div class="repeat-day-body">
+      <div class="form-group">
+        <label class="form-label" for="repeatDaySourceDate">Source day</label>
+        <input type="date" id="repeatDaySourceDate" class="form-input" required />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Repeat for how many more days?</label>
+        <div class="repeat-count-chips" id="repeatCountChips">
+          <button type="button" class="repeat-chip" data-val="1" onclick="selectRepeatChip(this)">1×</button>
+          <button type="button" class="repeat-chip repeat-chip--active" data-val="2" onclick="selectRepeatChip(this)">2×</button>
+          <button type="button" class="repeat-chip" data-val="3" onclick="selectRepeatChip(this)">3×</button>
+          <button type="button" class="repeat-chip" data-val="4" onclick="selectRepeatChip(this)">4×</button>
+          <button type="button" class="repeat-chip" data-val="5" onclick="selectRepeatChip(this)">5×</button>
+          <button type="button" class="repeat-chip" data-val="6" onclick="selectRepeatChip(this)">6×</button>
+        </div>
+        <div class="repeat-chip-caption" id="repeatChipCaption">Tasks will be copied to 2 days after the source day.</div>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button type="button" class="btn-cancel" onclick="closeRepeatDayModal()">Cancel</button>
+      <button type="button" class="btn-save" id="repeatDaySubmitBtn" onclick="submitRepeatDay()">
+        <svg width="13" height="13" viewBox="0 0 13 13" fill="none" style="margin-right:5px;vertical-align:-1px">
+          <path d="M2 6.5A4.5 4.5 0 1 0 6.5 2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+          <path d="M2 2.5V6.5H6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>Repeat Tasks
+      </button>
+    </div>
   </div>
 </div>
 
@@ -588,6 +679,7 @@
     const xpMeta = document.getElementById('gamificationXpMeta');
     const levelFill = document.getElementById('gamificationLevelFill');
     const badgeRow = document.getElementById('gamificationBadgeRow');
+    const taskList = document.getElementById('gamificationTaskList');
 
     if (points) points.textContent = data.points ?? points.textContent;
     if (streak) streak.textContent = data.productivity_streak ?? streak.textContent;
@@ -601,6 +693,19 @@
     }
     if (badgeRow && Array.isArray(data.badges)) {
       badgeRow.innerHTML = data.badges.map((badge) => `<span class="badge-pill">${badge}</span>`).join('');
+    }
+    if (taskList && Array.isArray(data.active_tasks)) {
+      taskList.innerHTML = data.active_tasks.length
+        ? data.active_tasks.map((item) => `
+            <div class="completion-feed-item" data-task-id="${item.id}">
+              <div class="completion-feed-main">
+                <div class="completion-feed-task">${escapeHtml(item.title || 'Task')}</div>
+                <div class="completion-feed-meta">${escapeHtml(item.category || 'Work')} • ${escapeHtml(item.status || 'Pending')}</div>
+              </div>
+              <span class="completion-feed-xp completion-feed-xp--priority">${item.score ?? 0}</span>
+            </div>
+          `).join('')
+        : '<div class="completion-feed-empty" id="gamificationTaskEmpty">Add a task to turn it into your next quest.</div>';
     }
 
     renderGamificationFeed(payload.recent_completions || []);
@@ -690,5 +795,79 @@
       if (task && typeof showTaskFinishPopup === 'function') showTaskFinishPopup(task.title);
     }
   }
+
+  /* Repeat Day Modal */
+  let _repeatDayCount = 2;
+
+  function openRepeatDayModal() {
+    const overlay = document.getElementById('repeat-day-modal-overlay');
+    if (!overlay) return;
+    const dateInput = document.getElementById('repeatDaySourceDate');
+    if (dateInput && !dateInput.value) {
+      dateInput.value = new Date().toISOString().slice(0, 10);
+    }
+    overlay.classList.add('open');
+  }
+
+  function closeRepeatDayModal(e) {
+    const overlay = document.getElementById('repeat-day-modal-overlay');
+    if (!overlay) return;
+    if (!e || e.target === overlay) {
+      overlay.classList.remove('open');
+    }
+  }
+
+  function selectRepeatChip(btn) {
+    document.querySelectorAll('.repeat-chip').forEach(c => c.classList.remove('repeat-chip--active'));
+    btn.classList.add('repeat-chip--active');
+    _repeatDayCount = Number(btn.dataset.val);
+    const caption = document.getElementById('repeatChipCaption');
+    if (caption) {
+      const d = _repeatDayCount;
+      caption.textContent = `Tasks will be copied to ${d} day${d > 1 ? 's' : ''} after the source day.`;
+    }
+  }
+
+  async function submitRepeatDay() {
+    const dateInput = document.getElementById('repeatDaySourceDate');
+    const submitBtn = document.getElementById('repeatDaySubmitBtn');
+    if (!dateInput || !dateInput.value) {
+      if (typeof showToast === 'function') showToast('Please pick a source day first.');
+      return;
+    }
+    const sourceDate = dateInput.value + 'T00:00:00';
+    const repeatTimes = _repeatDayCount;
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.innerHTML = 'Repeating...'; }
+    try {
+      const res = await fetch('/repeat_day_schedule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source_date: sourceDate, repeat_times: repeatTimes }),
+      });
+      if (!res.ok) throw new Error('repeat_day_failed');
+      const data = await res.json();
+      if (Array.isArray(data.tasks) && typeof allTasks !== 'undefined') {
+        const existingIds = new Set(allTasks.map(t => t.id));
+        data.tasks.forEach(t => { if (!existingIds.has(t.id)) allTasks.push(t); });
+        if (typeof renderCalendarView === 'function') renderCalendarView();
+        if (typeof renderMiniCal === 'function') renderMiniCal();
+        if (typeof renderSelectedDateEvents === 'function') renderSelectedDateEvents();
+      }
+      closeRepeatDayModal();
+      if (typeof showToast === 'function') {
+        const c = data.created_count;
+        showToast(c
+          ? `${c} task${c !== 1 ? 's' : ''} repeated across ${repeatTimes} day${repeatTimes > 1 ? 's' : ''}.`
+          : 'No new tasks to repeat - they already exist on those days.');
+      }
+    } catch (err) {
+      if (typeof showToast === 'function') showToast('Could not repeat tasks. Try again.');
+    } finally {
+      if (submitBtn) { submitBtn.disabled = false; submitBtn.innerHTML = 'Repeat Tasks'; }
+    }
+  }
 </script>
 {% endblock %}
+
+
+

@@ -11,6 +11,7 @@ from config import load_environment
 
 load_environment()
 logger = logging.getLogger(__name__)
+_quest_cache = {}
 
 
 CATEGORY_KEYWORDS = {
@@ -294,10 +295,23 @@ def build_user_notifications(tasks, logs, habits, habit_entries, goals, calendar
     return notifications[:18]
 
 
-def compute_gamification(tasks, habit_summaries):
+def compute_gamification(tasks, habit_summaries, user_name=None):
     completed_tasks = sum(1 for task in tasks if getattr(task, "status", "") == "Completed")
     habit_points = sum(item["streak"] * 2 for item in habit_summaries)
     points = completed_tasks * 10 + habit_points
+    unique_active_tasks = []
+    seen_titles = set()
+    for task in sorted(
+        [t for t in tasks if getattr(t, "status", "") in {"Pending", "In Progress", "Missed"}],
+        key=lambda t: (-compute_priority_score(t), getattr(t, "deadline", None) or getattr(t, "start_time", None) or getattr(t, "created_at", datetime.utcnow()))
+    ):
+        title = getattr(task, "title", "Task").strip().lower()
+        if title not in seen_titles:
+            seen_titles.add(title)
+            unique_active_tasks.append(task)
+            if len(unique_active_tasks) >= 5:
+                break
+    active_tasks = unique_active_tasks
 
     longest_habit_streak = max((item["streak"] for item in habit_summaries), default=0)
     productivity_streak = sum(1 for item in habit_summaries if item["completed_today"])
@@ -385,11 +399,23 @@ def compute_gamification(tasks, habit_summaries):
     if not badges:
         badges.append("Getting Started")
 
+    ai_quests = generate_game_quests(tasks, habit_summaries, user_name=user_name)
+
     return {
         "points": points,
         "productivity_streak": productivity_streak,
         "badges": badges,
         "badge_details": badge_rules,
+        "active_tasks": [
+            {
+                "id": getattr(task, "id", None),
+                "title": getattr(task, "title", "Task"),
+                "category": getattr(task, "category", "Work") or "Work",
+                "score": compute_priority_score(task),
+                "status": getattr(task, "status", "Pending") or "Pending",
+            }
+            for task in active_tasks
+        ] + ai_quests,
         "completed_tasks": completed_tasks,
         "longest_habit_streak": longest_habit_streak,
         "level": current_level,
@@ -401,6 +427,90 @@ def compute_gamification(tasks, habit_summaries):
         "unlocked_features": unlocked_features,
         "next_unlock": next_unlock,
     }
+
+
+def generate_game_quests(tasks, habit_summaries, user_name=None, now=None):
+    now = now or datetime.utcnow()
+    cache_key = _build_game_quest_cache_key(tasks, habit_summaries, user_name=user_name, now=now)
+    if cache_key in _quest_cache:
+        return _quest_cache[cache_key]
+
+    quests = _generate_ai_game_quests(tasks, habit_summaries, user_name=user_name, now=now)
+    if quests is None:
+        quests = _fallback_game_quests(tasks, habit_summaries)
+
+    _quest_cache[cache_key] = quests
+    return quests
+
+
+def _build_game_quest_cache_key(tasks, habit_summaries, user_name=None, now=None):
+    now = now or datetime.utcnow()
+    task_signature = tuple(
+        (
+            getattr(task, "title", "Task"),
+            getattr(task, "status", "Pending"),
+            getattr(task, "priority", "Medium"),
+            getattr(task, "category", "Work"),
+        )
+        for task in sorted(
+            tasks,
+            key=lambda task: (
+                getattr(task, "status", ""),
+                getattr(task, "deadline", None) or getattr(task, "start_time", None) or getattr(task, "created_at", datetime.utcnow()),
+                getattr(task, "title", ""),
+            ),
+        )[:10]
+    )
+    habit_signature = tuple(
+        (
+            getattr(item["habit"], "title", "Habit"),
+            item.get("streak", 0),
+            item.get("percentage", 0),
+            item.get("completed_today", False),
+        )
+        for item in habit_summaries[:6]
+    )
+    return (user_name or "", now.date().isoformat(), task_signature, habit_signature)
+
+
+def _fallback_game_quests(tasks, habit_summaries):
+    quests = []
+    pending_tasks = [
+        task for task in tasks
+        if getattr(task, "status", "") in {"Pending", "In Progress", "Missed"}
+    ]
+    top_task = max(pending_tasks, key=compute_priority_score, default=None)
+    strongest_habit = max(habit_summaries, key=lambda item: item["streak"], default=None)
+    lowest_habit = min(habit_summaries, key=lambda item: item["percentage"], default=None) if habit_summaries else None
+
+    if top_task:
+        quests.append({
+            "id": f"ai-quest-focus-{getattr(top_task, 'id', 'task')}",
+            "title": f"Boss battle: finish {getattr(top_task, 'title', 'your top task')}",
+            "category": "AI Quest",
+            "score": min(99, compute_priority_score(top_task) + 8),
+            "status": "Bonus Quest",
+        })
+
+    if strongest_habit and strongest_habit["streak"] > 0:
+        quests.append({
+            "id": f"ai-quest-streak-{getattr(strongest_habit['habit'], 'id', 'habit')}",
+            "title": f"Protect your {strongest_habit['habit'].title} streak today",
+            "category": "Habit Quest",
+            "score": 72,
+            "status": "Streak Quest",
+        })
+
+    if lowest_habit and not lowest_habit["completed_today"]:
+        quests.append({
+            "id": f"ai-quest-revive-{getattr(lowest_habit['habit'], 'id', 'habit')}",
+            "title": f"Revive {lowest_habit['habit'].title} with one easy check-in",
+            "category": "Habit Quest",
+            "score": 61,
+            "status": "Recovery Quest",
+        })
+
+    return quests[:3]
 
 
 def build_recent_completion_feed(tasks, logs, limit=5):
@@ -441,7 +551,9 @@ def weekly_reflection(tasks, logs, habit_summaries, user_name=None, now=None):
         tasks, logs, habit_summaries, user_name=user_name, now=now
     )
     if ai_reflection:
+        logger.info("Weekly reflection generated via AI.")
         return ai_reflection
+    logger.info("Weekly reflection fell back to local summary.")
     return _fallback_weekly_reflection(tasks, logs, habit_summaries)
 
 
@@ -472,9 +584,16 @@ def _fallback_weekly_reflection(tasks, logs, habit_summaries):
 def _generate_ai_weekly_reflection(tasks, logs, habit_summaries, user_name=None, now=None):
     settings = _resolve_ai_settings()
     if not settings:
+        logger.info("Weekly reflection AI disabled: no provider settings found.")
         return None
 
     now = now or datetime.utcnow()
+    logger.info(
+        "Weekly reflection requesting AI provider=%s model=%s base_url=%s",
+        settings["provider"],
+        settings["model"],
+        settings["base_url"],
+    )
     creative_direction = random.choice([
         "encouraging and grounded",
         "clear and insightful",
@@ -505,6 +624,8 @@ def _generate_ai_weekly_reflection(tasks, logs, habit_summaries, user_name=None,
                     "- lines must be an array of 3 or 4 strings.\n"
                     "- Each line should be under 140 characters.\n"
                     "- Include one performance insight, one habit insight, and one practical next-step suggestion.\n"
+                    "- Mention the most important bottleneck or priority shift from the data.\n"
+                    "- Keep each line concrete and focused, not generic encouragement.\n"
                     "- Avoid markdown, emojis, hashtags, and quotation marks.\n"
                     "- Make the reflection feel specific to this week's data.\n\n"
                     f"{context}\n"
@@ -557,7 +678,124 @@ def _generate_ai_weekly_reflection(tasks, logs, habit_summaries, user_name=None,
     if len(cleaned_lines) < 3:
         return None
 
+    logger.info(
+        "Weekly reflection AI response accepted with provider=%s lines=%s",
+        settings["provider"],
+        len(cleaned_lines),
+    )
     return cleaned_lines
+
+
+def _generate_ai_game_quests(tasks, habit_summaries, user_name=None, now=None):
+    settings = _resolve_ai_settings()
+    if not settings:
+        logger.info("Game quests AI disabled: no provider settings found.")
+        return None
+
+    now = now or datetime.utcnow()
+    logger.info(
+        "Game quests requesting AI provider=%s model=%s base_url=%s",
+        settings["provider"],
+        settings["model"],
+        settings["base_url"],
+    )
+    context = _build_game_quest_context(tasks, habit_summaries, user_name=user_name, now=now)
+    payload = {
+        "model": settings["model"],
+        "input": [
+            {
+                "role": "system",
+                "content": (
+                    "You create short gamified productivity quests for a planner dashboard. "
+                    "The quests should feel playful, specific, and actionable. "
+                    "Respond with valid JSON only."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    "Return JSON with exactly one key: quests.\n"
+                    "quests must be an array of 3 objects.\n"
+                    "Each object must have exactly these keys: title, category, score, status.\n"
+                    "Constraints:\n"
+                    "- title: under 70 characters and tied to the user's actual tasks or habits.\n"
+                    "- category: 1 to 3 words.\n"
+                    "- score: integer from 40 to 99.\n"
+                    "- status: 1 to 3 words like Bonus Quest or Boss Fight.\n"
+                    "- Make them feel like game quests, not generic todos.\n"
+                    "- Avoid markdown, emojis, quotation marks inside fields, and fantasy nonsense.\n\n"
+                    f"{context}\n"
+                    f"Variation seed: {random.randint(1000, 999999)}"
+                ),
+            },
+        ],
+        "temperature": 0.9,
+        "max_output_tokens": 260,
+    }
+
+    req = request.Request(
+        f"{settings['base_url']}/responses",
+        data=json.dumps(payload).encode("utf-8"),
+        headers=_build_ai_headers(settings["api_key"], settings["provider"]),
+        method="POST",
+    )
+
+    try:
+        with request.urlopen(req, timeout=8) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except error.HTTPError as exc:
+        logger.warning("Game quests AI request failed with HTTP %s", exc.code)
+        return None
+    except (error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        logger.warning("Game quests AI request failed: %s", exc)
+        return None
+
+    parsed = _extract_response_text(data)
+    if not parsed:
+        return None
+
+    try:
+        content = json.loads(parsed)
+    except json.JSONDecodeError:
+        return None
+
+    quests = content.get("quests")
+    if not isinstance(quests, list):
+        return None
+
+    cleaned_quests = []
+    for index, quest in enumerate(quests[:3], start=1):
+        if not isinstance(quest, dict):
+            continue
+        title = " ".join(str(quest.get("title", "")).split()).strip()[:70]
+        category = " ".join(str(quest.get("category", "")).split()).strip()[:20]
+        status = " ".join(str(quest.get("status", "")).split()).strip()[:24]
+        try:
+            score = int(quest.get("score", 60))
+        except (TypeError, ValueError):
+            score = 60
+        score = max(40, min(99, score))
+
+        if not title or not category or not status:
+            continue
+
+        cleaned_quests.append({
+            "id": f"ai-quest-{index}",
+            "title": title,
+            "category": category,
+            "score": score,
+            "status": status,
+        })
+
+    if len(cleaned_quests) < 2:
+        return None
+
+    logger.info(
+        "Game quests AI response accepted with provider=%s quests=%s",
+        settings["provider"],
+        len(cleaned_quests),
+    )
+    return cleaned_quests
 
 
 def generate_daily_intention(tasks, logs, habit_summaries, user_name=None, now=None):
@@ -775,10 +1013,56 @@ def _build_weekly_reflection_context(tasks, logs, habit_summaries, user_name=Non
     ])
 
 
+def _build_game_quest_context(tasks, habit_summaries, user_name=None, now=None):
+    now = now or datetime.utcnow()
+    pending_tasks = [
+        task for task in tasks
+        if getattr(task, "status", "") in {"Pending", "In Progress", "Missed"}
+    ]
+    top_pending = sorted(pending_tasks, key=compute_priority_score, reverse=True)[:4]
+    completed_count = sum(1 for task in tasks if getattr(task, "status", "") == "Completed")
+    top_habits = sorted(habit_summaries, key=lambda item: (item["streak"], item["percentage"]), reverse=True)[:3]
+    weak_habits = sorted(habit_summaries, key=lambda item: item["percentage"])[:2]
+
+    return "\n".join([
+        f"User: {user_name or 'Planner user'}",
+        f"Today: {now.strftime('%A, %B %d')}",
+        f"Completed task count: {completed_count}",
+        "Top pending tasks: " + (
+            ", ".join(
+                f"{getattr(task, 'title', 'Task')} [{getattr(task, 'priority', 'Medium')}, score {compute_priority_score(task)}]"
+                for task in top_pending
+            ) or "None"
+        ),
+        "Strongest habits: " + (
+            ", ".join(
+                f"{item['habit'].title} ({item['streak']} streak, {item['percentage']}%)"
+                for item in top_habits
+            ) or "None"
+        ),
+        "Needs momentum: " + (
+            ", ".join(
+                f"{item['habit'].title} ({item['percentage']}%)"
+                for item in weak_habits
+            ) or "None"
+        ),
+    ])
+
+
 def _extract_response_text(data):
     if isinstance(data, dict):
         if isinstance(data.get("output_text"), str) and data["output_text"].strip():
             return data["output_text"].strip()
+
+        for item in data.get("output", []):
+            if item.get("type") != "message":
+                continue
+            for content in item.get("content", []):
+                if content.get("type") != "output_text":
+                    continue
+                text = content.get("text")
+                if isinstance(text, str) and text.strip():
+                    return text.strip()
 
         for item in data.get("output", []):
             for content in item.get("content", []):
@@ -795,7 +1079,15 @@ def _build_task_notifications(tasks, now):
         if getattr(task, "status", "") in {"Pending", "In Progress"}
     ]
 
+    unique_pending_tasks = []
+    seen_titles = set()
     for task in pending_tasks:
+        title = getattr(task, "title", "Task").strip().lower()
+        if title not in seen_titles:
+            seen_titles.add(title)
+            unique_pending_tasks.append(task)
+
+    for task in unique_pending_tasks:
         due_at = getattr(task, "deadline", None)
         start_at = getattr(task, "start_time", None)
 
@@ -1011,14 +1303,14 @@ def _end_of_month(today):
 
 
 def _resolve_ai_settings():
-    api_key = os.getenv("OPENAI_API_KEY") or os.getenv("OPENROUTER_API_KEY")
+    api_key = (os.getenv("OPENAI_API_KEY") or os.getenv("OPENROUTER_API_KEY") or "").strip()
     if not api_key:
         return None
 
     is_openrouter = api_key.startswith("sk-or-v1-")
     provider = "openrouter" if is_openrouter else "openai"
-    base_url = os.getenv("OPENAI_BASE_URL")
-    model = os.getenv("OPENAI_MODEL")
+    base_url = (os.getenv("OPENAI_BASE_URL") or "").strip()
+    model = (os.getenv("OPENAI_MODEL") or "").strip()
 
     if not base_url:
         base_url = "https://openrouter.ai/api/v1" if is_openrouter else "https://api.openai.com/v1"

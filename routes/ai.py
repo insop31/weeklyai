@@ -37,5 +37,9 @@ def ai_recommendations():
             habit_summaries,
             user_name=getattr(current_user, "name", None),
         ),
-        gamification=compute_gamification(all_tasks, habit_summaries),
+        gamification=compute_gamification(
+            all_tasks,
+            habit_summaries,
+            user_name=getattr(current_user, "name", None),
+        ),
     )

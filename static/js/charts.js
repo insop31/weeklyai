@@ -1,4 +1,4 @@
-const COLORS = {
+const BASE_COLORS = {
   mint: '#BFE9DA',
   mintAlpha: 'rgba(191,233,218,0.35)',
   peach: '#F6CFC3',
@@ -27,6 +27,26 @@ const COLORS = {
   },
 };
 
+let analyticsCharts = [];
+
+function cssVar(name, fallback) {
+  const value = getComputedStyle(document.body).getPropertyValue(name).trim();
+  return value || fallback;
+}
+
+function getThemeColors() {
+  const isDark = document.body.dataset.theme === 'dark';
+  return {
+    ...BASE_COLORS,
+    text: cssVar('--text-dark', BASE_COLORS.text),
+    textMuted: cssVar('--text-muted', BASE_COLORS.textMuted),
+    grid: isDark ? 'rgba(185,176,233,0.18)' : BASE_COLORS.grid,
+    tooltipBg: isDark ? 'rgba(32,27,54,0.96)' : '#FFFFFF',
+    tooltipBorder: isDark ? 'rgba(185,176,233,0.18)' : 'rgba(180,170,220,0.35)',
+    pointFill: isDark ? cssVar('--surface-base', '#201B36') : '#FFFFFF',
+  };
+}
+
 function createVerticalGradient(ctx, area, start, end) {
   const gradient = ctx.createLinearGradient(0, area.top, 0, area.bottom);
   gradient.addColorStop(0, start);
@@ -41,46 +61,54 @@ function createHorizontalGradient(ctx, area, start, end) {
   return gradient;
 }
 
-function applyChartDefaults() {
+function applyChartDefaults(colors) {
   if (!window.Chart) return;
 
   Chart.defaults.font.family = "'Plus Jakarta Sans', sans-serif";
   Chart.defaults.font.size = 12;
-  Chart.defaults.color = COLORS.textMuted;
+  Chart.defaults.color = colors.textMuted;
   Chart.defaults.plugins.legend.display = false;
-  Chart.defaults.plugins.tooltip.backgroundColor = '#FFFFFF';
-  Chart.defaults.plugins.tooltip.titleColor = COLORS.text;
-  Chart.defaults.plugins.tooltip.bodyColor = COLORS.textMuted;
-  Chart.defaults.plugins.tooltip.borderColor = 'rgba(180,170,220,0.35)';
+  Chart.defaults.plugins.tooltip.backgroundColor = colors.tooltipBg;
+  Chart.defaults.plugins.tooltip.titleColor = colors.text;
+  Chart.defaults.plugins.tooltip.bodyColor = colors.textMuted;
+  Chart.defaults.plugins.tooltip.borderColor = colors.tooltipBorder;
   Chart.defaults.plugins.tooltip.borderWidth = 1;
   Chart.defaults.plugins.tooltip.padding = 10;
   Chart.defaults.plugins.tooltip.cornerRadius = 8;
 }
 
 function initAnalyticsCharts(data) {
-  applyChartDefaults();
-  renderDonut(data);
-  renderBarChart(data);
-  renderLineChart(data);
-  renderCategoryChart(data);
-  renderHabitChart(data);
+  const colors = getThemeColors();
+  applyChartDefaults(colors);
+  destroyAnalyticsCharts();
+  renderDonut(data, colors);
+  renderBarChart(data, colors);
+  renderLineChart(data, colors);
+  renderCategoryChart(data, colors);
+  renderHabitChart(data, colors);
 }
 
-function renderDonut(data) {
+function destroyAnalyticsCharts() {
+  analyticsCharts.forEach(chart => chart.destroy());
+  analyticsCharts = [];
+}
+
+function renderDonut(data, colors) {
   const canvas = document.getElementById('donutChart');
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
+  canvas.style.backgroundColor = 'transparent';
   const completedGradient = ctx.createLinearGradient(0, 0, 180, 180);
-  completedGradient.addColorStop(0, COLORS.mint);
-  completedGradient.addColorStop(1, COLORS.sage);
+  completedGradient.addColorStop(0, colors.mint);
+  completedGradient.addColorStop(1, colors.sage);
   const pendingGradient = ctx.createLinearGradient(0, 0, 180, 180);
-  pendingGradient.addColorStop(0, COLORS.lavender);
-  pendingGradient.addColorStop(1, COLORS.sky);
+  pendingGradient.addColorStop(0, colors.lavender);
+  pendingGradient.addColorStop(1, colors.sky);
   const missedGradient = ctx.createLinearGradient(0, 0, 180, 180);
-  missedGradient.addColorStop(0, COLORS.peach);
-  missedGradient.addColorStop(1, COLORS.rose);
+  missedGradient.addColorStop(0, colors.peach);
+  missedGradient.addColorStop(1, colors.rose);
 
-  new Chart(canvas, {
+  analyticsCharts.push(new Chart(canvas, {
     type: 'doughnut',
     data: {
       labels: ['Completed', 'Pending', 'Missed'],
@@ -96,34 +124,35 @@ function renderDonut(data) {
       cutout: '72%',
       responsive: true,
     },
-  });
+  }));
 }
 
-function renderBarChart(data) {
+function renderBarChart(data, colors) {
   const canvas = document.getElementById('barChart');
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
+  canvas.style.backgroundColor = 'transparent';
   const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   const dayPairs = [
-    [COLORS.mint, COLORS.sage],
-    [COLORS.lavender, COLORS.sky],
-    [COLORS.peach, COLORS.rose],
-    [COLORS.sky, COLORS.mint],
-    [COLORS.butter, COLORS.peach],
-    [COLORS.rose, COLORS.lavender],
-    [COLORS.sage, COLORS.sky],
+    [colors.mint, colors.sage],
+    [colors.lavender, colors.sky],
+    [colors.peach, colors.rose],
+    [colors.sky, colors.mint],
+    [colors.butter, colors.peach],
+    [colors.rose, colors.lavender],
+    [colors.sage, colors.sky],
   ];
   const gradients = dayPairs.map(([start, end]) =>
     createVerticalGradient(ctx, { top: 0, bottom: canvas.height || 220 }, start, end)
   );
 
-  new Chart(canvas, {
+  analyticsCharts.push(new Chart(canvas, {
     type: 'bar',
     data: {
       labels,
       datasets: [{
         data: data.daily,
-        backgroundColor: data.daily.map((value, index) => value > 0 ? gradients[index] : COLORS.muted),
+        backgroundColor: data.daily.map((value, index) => value > 0 ? gradients[index] : colors.muted),
         borderRadius: 6,
         borderSkipped: false,
       }],
@@ -132,27 +161,28 @@ function renderBarChart(data) {
       responsive: true,
       scales: {
         x: { grid: { display: false } },
-        y: { grid: { color: COLORS.grid }, beginAtZero: true, ticks: { stepSize: 1, precision: 0 } },
+        y: { grid: { color: colors.grid }, beginAtZero: true, ticks: { stepSize: 1, precision: 0 } },
       },
     },
-  });
+  }));
 }
 
-function renderLineChart(data) {
+function renderLineChart(data, colors) {
   const canvas = document.getElementById('lineChart');
   if (!canvas) return;
 
   const ctx = canvas.getContext('2d');
+  canvas.style.backgroundColor = 'transparent';
   const grad = ctx.createLinearGradient(0, 0, 0, 220);
-  grad.addColorStop(0, COLORS.lavenderAlpha);
-  grad.addColorStop(0.55, COLORS.skyAlpha);
+  grad.addColorStop(0, colors.lavenderAlpha);
+  grad.addColorStop(0.55, colors.skyAlpha);
   grad.addColorStop(1, 'rgba(200,229,246,0)');
   const strokeGrad = ctx.createLinearGradient(0, 0, canvas.width || 360, 0);
-  strokeGrad.addColorStop(0, COLORS.active);
+  strokeGrad.addColorStop(0, colors.active);
   strokeGrad.addColorStop(0.5, '#8FB8E8');
   strokeGrad.addColorStop(1, '#87CBB5');
 
-  new Chart(canvas, {
+  analyticsCharts.push(new Chart(canvas, {
     type: 'line',
     data: {
       labels: data.progress_labels,
@@ -162,11 +192,11 @@ function renderLineChart(data) {
         backgroundColor: grad,
         borderWidth: 2.5,
         pointRadius: 5,
-        pointBackgroundColor: ['#FFFFFF'],
-        pointBorderColor: '#FFFFFF',
+        pointBackgroundColor: colors.pointFill,
+        pointBorderColor: colors.pointFill,
         pointBorderWidth: 2,
-        pointHoverBackgroundColor: COLORS.peach,
-        pointHoverBorderColor: '#FFFFFF',
+        pointHoverBackgroundColor: colors.peach,
+        pointHoverBorderColor: colors.pointFill,
         tension: 0.4,
         fill: true,
       }],
@@ -175,30 +205,31 @@ function renderLineChart(data) {
       responsive: true,
       scales: {
         x: { grid: { display: false } },
-        y: { grid: { color: COLORS.grid }, beginAtZero: true, ticks: { stepSize: 1, precision: 0 } },
+        y: { grid: { color: colors.grid }, beginAtZero: true, ticks: { stepSize: 1, precision: 0 } },
       },
     },
-  });
+  }));
 }
 
-function renderCategoryChart(data) {
+function renderCategoryChart(data, colors) {
   const canvas = document.getElementById('categoryChart');
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
+  canvas.style.backgroundColor = 'transparent';
 
   const categories = Object.keys(data.category_hours || {});
   const hours = Object.values(data.category_hours || {});
   const bgColors = categories.map((category, index) => {
-    const pair = COLORS.catColors[category] || [
-      [COLORS.lavender, COLORS.sky],
-      [COLORS.peach, COLORS.rose],
-      [COLORS.mint, COLORS.sage],
-      [COLORS.butter, COLORS.peach],
+    const pair = colors.catColors[category] || [
+      [colors.lavender, colors.sky],
+      [colors.peach, colors.rose],
+      [colors.mint, colors.sage],
+      [colors.butter, colors.peach],
     ][index % 4];
     return createHorizontalGradient(ctx, { left: 0, right: canvas.width || 320 }, pair[0], pair[1]);
   });
 
-  new Chart(canvas, {
+  analyticsCharts.push(new Chart(canvas, {
     type: 'bar',
     data: {
       labels: categories,
@@ -213,7 +244,7 @@ function renderCategoryChart(data) {
       indexAxis: 'y',
       responsive: true,
       scales: {
-        x: { grid: { color: COLORS.grid }, beginAtZero: true },
+        x: { grid: { color: colors.grid }, beginAtZero: true },
         y: { grid: { display: false } },
       },
       plugins: {
@@ -224,15 +255,16 @@ function renderCategoryChart(data) {
         },
       },
     },
-  });
+  }));
 }
 
-function renderHabitChart(data) {
+function renderHabitChart(data, colors) {
   const canvas = document.getElementById('habitChart');
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
+  canvas.style.backgroundColor = 'transparent';
 
-  new Chart(canvas, {
+  analyticsCharts.push(new Chart(canvas, {
     type: 'bar',
     data: {
       labels: data.habit_labels,
@@ -240,10 +272,10 @@ function renderHabitChart(data) {
         data: data.habit_percentages,
         backgroundColor: data.habit_percentages.map((_, index) => {
           const palette = [
-            [COLORS.rose, COLORS.lavender],
-            [COLORS.mint, COLORS.sky],
-            [COLORS.butter, COLORS.peach],
-            [COLORS.sage, COLORS.mint],
+            [colors.rose, colors.lavender],
+            [colors.mint, colors.sky],
+            [colors.butter, colors.peach],
+            [colors.sage, colors.mint],
           ][index % 4];
           return createVerticalGradient(ctx, { top: 0, bottom: canvas.height || 220 }, palette[0], palette[1]);
         }),
@@ -256,7 +288,7 @@ function renderHabitChart(data) {
       scales: {
         x: { grid: { display: false } },
         y: {
-          grid: { color: COLORS.grid },
+          grid: { color: colors.grid },
           beginAtZero: true,
           max: 100,
           ticks: {
@@ -272,5 +304,5 @@ function renderHabitChart(data) {
         },
       },
     },
-  });
+  }));
 }

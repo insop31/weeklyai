@@ -35,7 +35,11 @@ def analytics():
     habit_entries = HabitEntry.query.filter_by(user_id=current_user.id).all()
     habit_summaries = summarize_habits(habits, habit_entries)
     overload_days, burnout_warning = detect_overload(tasks)
-    gamification = compute_gamification(tasks, habit_summaries)
+    gamification = compute_gamification(
+        tasks,
+        habit_summaries,
+        user_name=getattr(current_user, "name", None),
+    )
 
     return render_template("analytics.html",
         tasks=tasks,

@@ -1,21 +1,24 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>{% block title %}WeeklyAI{% endblock %}</title>
+  <title>{% block title %}TaskNova{% endblock %}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"/>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}"/>
   {% block head %}{% endblock %}
 </head>
-<body>
+<body data-theme="light">
 
-  <!-- ── Icon Sidebar ── -->
+  <!-- â”€â”€ Icon Sidebar â”€â”€ -->
   <aside class="sidebar">
     <div class="sidebar-logo">
-      <div class="logo-circle">W</div>
+      <img
+        src="{{ url_for('static', filename='img/logo.png') }}"
+        alt="TaskNova logo"
+        class="app-logo app-logo--sidebar"/>
     </div>
 
     <nav class="sidebar-nav">
@@ -76,13 +79,13 @@
     </div>
   </aside>
 
-  <!-- ── Main Area ── -->
+  <!-- â”€â”€ Main Area â”€â”€ -->
   <div class="main-area">
 
-    <!-- ── Topbar ── -->
+    <!-- â”€â”€ Topbar â”€â”€ -->
     <header class="topbar">
       <div class="topbar-left">
-        <span class="topbar-title">{% block page_title %}WeeklyAI{% endblock %}</span>
+        <div class="topbar-title">{% block page_title %}TaskNova{% endblock %}</div>
       </div>
 
       <div class="topbar-center">
@@ -100,14 +103,14 @@
         {% if current_user.is_authenticated %}
         <div class="stat-block">
           <span class="stat-label">Tasks today</span>
-          <span class="stat-value">{{ tasks|selectattr('status','ne','Completed')|list|length if tasks is defined else '—' }}</span>
+          <span class="stat-value">{{ tasks|selectattr('status','ne','Completed')|list|length if tasks is defined else 'â€”' }}</span>
         </div>
         <div class="stat-block">
           <span class="stat-label">Completion</span>
           <span class="stat-value">
             {% if tasks is defined and tasks|length > 0 %}
               {{ ((tasks|selectattr('status','equalto','Completed')|list|length / tasks|length) * 100)|int }}%
-            {% else %}—{% endif %}
+            {% else %}â€”{% endif %}
           </span>
         </div>
 
@@ -122,6 +125,22 @@
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
             <path d="M8 1a5 5 0 015 5v3l1.5 2H1.5L3 9V6a5 5 0 015-5z" stroke="currentColor" stroke-width="1.3"/>
             <path d="M6.5 13.5a1.5 1.5 0 003 0" stroke="currentColor" stroke-width="1.3"/>
+          </svg>
+        </button>
+
+        <button
+          class="icon-btn theme-toggle"
+          id="themeToggle"
+          type="button"
+          title="Switch to dark mode"
+          aria-label="Switch to dark mode"
+          aria-pressed="false">
+          <svg class="theme-toggle-icon theme-toggle-icon--sun" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <circle cx="8" cy="8" r="3" stroke="currentColor" stroke-width="1.4"/>
+            <path d="M8 1.5V3M8 13V14.5M3 8H1.5M14.5 8H13M3.4 3.4L4.5 4.5M11.5 11.5L12.6 12.6M12.6 3.4L11.5 4.5M4.5 11.5L3.4 12.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+          </svg>
+          <svg class="theme-toggle-icon theme-toggle-icon--moon" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M10.9 1.9a5.8 5.8 0 104.2 9.7A6.3 6.3 0 0110.9 1.9z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
           </svg>
         </button>
 
@@ -144,7 +163,7 @@
       </div>
     </header>
 
-    <!-- ── Flash Messages ── -->
+    <!-- â”€â”€ Flash Messages â”€â”€ -->
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}
         <div class="flash-container">
@@ -155,19 +174,19 @@
       {% endif %}
     {% endwith %}
 
-    <!-- ── Page Content ── -->
+    <!-- â”€â”€ Page Content â”€â”€ -->
     <main class="content-area">
       {% block content %}{% endblock %}
     </main>
 
   </div><!-- end .main-area -->
 
-  <!-- ── Add Task Modal ── -->
+  <!-- â”€â”€ Add Task Modal â”€â”€ -->
   {% if current_user.is_authenticated %}
   <div id="task-modal-overlay" class="modal-overlay" onclick="closeModal(event)">
     <div class="modal-card" onclick="event.stopPropagation()">
       <div class="modal-header">
-        <span class="modal-title">New Task</span>
+        <span class="modal-title" id="taskModalTitle">New Task</span>
         <button class="modal-close" onclick="closeModal()">
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
             <path d="M1 1l12 12M13 1L1 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
@@ -175,16 +194,16 @@
         </button>
       </div>
 
-      <form method="POST" action="{{ url_for('tasks.add_task') }}" class="modal-form">
+      <form method="POST" action="{{ url_for('tasks.add_task') }}" class="modal-form" id="taskForm">
         <div class="form-group">
           <label class="form-label">Task title</label>
-          <input type="text" name="title" class="form-input" placeholder="e.g. Morning Run" required/>
+          <input type="text" name="title" class="form-input" id="taskTitleInput" placeholder="e.g. Morning Run" required/>
         </div>
 
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">Category</label>
-            <select name="category" class="form-input">
+            <select name="category" class="form-input" id="taskCategoryInput">
               <option selected>Auto</option>
               <option>Work</option>
               <option>Personal</option>
@@ -194,7 +213,7 @@
           </div>
           <div class="form-group">
             <label class="form-label">Priority</label>
-            <select name="priority" class="form-input">
+            <select name="priority" class="form-input" id="taskPriorityInput">
               <option>High</option>
               <option selected>Medium</option>
               <option>Low</option>
@@ -205,33 +224,33 @@
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">Start time</label>
-            <input type="datetime-local" name="start_time" class="form-input"/>
+            <input type="datetime-local" name="start_time" class="form-input" id="taskStartTimeInput"/>
           </div>
           <div class="form-group">
             <label class="form-label">End time</label>
-            <input type="datetime-local" name="end_time" class="form-input"/>
+            <input type="datetime-local" name="end_time" class="form-input" id="taskEndTimeInput"/>
           </div>
         </div>
 
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">Deadline</label>
-            <input type="datetime-local" name="deadline" class="form-input"/>
+            <input type="datetime-local" name="deadline" class="form-input" id="taskDeadlineInput"/>
           </div>
           <div class="form-group">
             <label class="form-label">Est. hours</label>
-            <input type="number" name="estimated_time" class="form-input" value="1" min="0.5" step="0.5"/>
+            <input type="number" name="estimated_time" class="form-input" id="taskEstimatedTimeInput" value="1" min="0.5" step="0.5"/>
           </div>
         </div>
 
         <div class="form-group">
           <label class="form-label">Tags</label>
-          <input type="text" name="tags" class="form-input" placeholder="e.g. Database, Exam, Focus"/>
+          <input type="text" name="tags" class="form-input" id="taskTagsInput" placeholder="e.g. Database, Exam, Focus"/>
         </div>
 
         <div class="modal-actions">
-          <button type="button" class="btn-cancel" onclick="closeModal()">Cancel</button>
-          <button type="submit" class="btn-save">Save Task</button>
+          <button type="button" class="btn-cancel" id="taskModalCancelBtn" onclick="closeModal()">Cancel</button>
+          <button type="submit" class="btn-save" id="taskModalSubmitBtn">Save Task</button>
         </div>
       </form>
     </div>
@@ -250,14 +269,125 @@
     </div>
   </div>
   <script>
+    const THEME_STORAGE_KEY = 'tasknova-theme';
+
+    function getPreferredTheme() {
+      const storedTheme = localStorage.getItem(THEME_STORAGE_KEY);
+      if (storedTheme === 'light' || storedTheme === 'dark') {
+        return storedTheme;
+      }
+      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+
+    function syncThemeToggle(theme) {
+      const toggle = document.getElementById('themeToggle');
+      if (!toggle) return;
+      const nextTheme = theme === 'dark' ? 'light' : 'dark';
+      toggle.setAttribute('aria-pressed', String(theme === 'dark'));
+      toggle.setAttribute('aria-label', `Switch to ${nextTheme} mode`);
+      toggle.setAttribute('title', `Switch to ${nextTheme} mode`);
+    }
+
+    function applyTheme(theme) {
+      document.body.dataset.theme = theme;
+      syncThemeToggle(theme);
+      document.dispatchEvent(new CustomEvent('themechange', { detail: { theme } }));
+    }
+
+    function toggleTheme() {
+      const nextTheme = document.body.dataset.theme === 'dark' ? 'light' : 'dark';
+      localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
+      applyTheme(nextTheme);
+    }
+
+    applyTheme(getPreferredTheme());
+
+    document.getElementById('themeToggle')?.addEventListener('click', toggleTheme);
+
+    const TASK_CREATE_URL = "{{ url_for('tasks.add_task') }}";
+    let editingTaskId = null;
+
+    function resetTaskModal() {
+      editingTaskId = null;
+      const form = document.getElementById('taskForm');
+      if (form) {
+        form.reset();
+        form.action = TASK_CREATE_URL;
+      }
+      document.getElementById('taskModalTitle').textContent = 'New Task';
+      document.getElementById('taskModalSubmitBtn').textContent = 'Save Task';
+      document.getElementById('taskCategoryInput').value = 'Auto';
+      document.getElementById('taskPriorityInput').value = 'Medium';
+      document.getElementById('taskEstimatedTimeInput').value = '1';
+    }
+
     function openModal() {
+      if (!editingTaskId) {
+        resetTaskModal();
+      }
       document.getElementById('task-modal-overlay').classList.add('open');
     }
     function closeModal(e) {
       if (!e || e.target === document.getElementById('task-modal-overlay')) {
         document.getElementById('task-modal-overlay').classList.remove('open');
+        resetTaskModal();
       }
     }
+
+    function toLocalDateTimeValue(value) {
+      return value ? String(value).slice(0, 16) : '';
+    }
+
+    function openTaskEditor(task) {
+      if (!task) return;
+      editingTaskId = task.id;
+      document.getElementById('taskModalTitle').textContent = 'Edit Task';
+      document.getElementById('taskModalSubmitBtn').textContent = 'Save Changes';
+      document.getElementById('taskTitleInput').value = task.title || '';
+      document.getElementById('taskCategoryInput').value = task.category || 'Auto';
+      document.getElementById('taskPriorityInput').value = task.priority || 'Medium';
+      document.getElementById('taskStartTimeInput').value = toLocalDateTimeValue(task.start_time);
+      document.getElementById('taskEndTimeInput').value = toLocalDateTimeValue(task.end_time);
+      document.getElementById('taskDeadlineInput').value = toLocalDateTimeValue(task.deadline);
+      document.getElementById('taskEstimatedTimeInput').value = task.estimated_time || '1';
+      document.getElementById('taskTagsInput').value = Array.isArray(task.tags) ? task.tags.join(', ') : '';
+      document.getElementById('task-modal-overlay').classList.add('open');
+    }
+
+    async function saveTaskEdits(event) {
+      if (!editingTaskId) return;
+      event.preventDefault();
+
+      const payload = {
+        title: document.getElementById('taskTitleInput').value.trim(),
+        category: document.getElementById('taskCategoryInput').value,
+        priority: document.getElementById('taskPriorityInput').value,
+        start_time: document.getElementById('taskStartTimeInput').value || null,
+        end_time: document.getElementById('taskEndTimeInput').value || null,
+        deadline: document.getElementById('taskDeadlineInput').value || null,
+        estimated_time: document.getElementById('taskEstimatedTimeInput').value || null,
+        tags: document.getElementById('taskTagsInput').value.trim(),
+      };
+
+      const res = await fetch(`/update_task/${editingTaskId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) return;
+      const data = await res.json();
+      if (typeof window.handleTaskUpdated === 'function') {
+        window.handleTaskUpdated(data.task, data);
+      }
+      closeModal();
+    }
+
+    document.getElementById('taskForm')?.addEventListener('submit', (event) => {
+      if (editingTaskId) {
+        saveTaskEdits(event);
+      }
+    });
 
     function showTaskFinishPopup(taskName) {
       const popup = document.getElementById('finishPopup');
@@ -290,3 +420,4 @@
   {% block scripts %}{% endblock %}
 </body>
 </html>
+
