@@ -2544,6 +2544,184 @@ body[data-theme='dark'] .rec-btn--reschedule {
   color: var(--text-body);
 }
 
+.ai-report-card {
+  background: white;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-light);
+  box-shadow: var(--shadow-card);
+  padding: 20px 22px 22px;
+  margin-bottom: 18px;
+}
+
+.ai-report-header {
+  margin-bottom: 18px;
+}
+
+.ai-report-kicker {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent-active);
+  margin-bottom: 6px;
+}
+
+.ai-report-headline {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-dark);
+  line-height: 1.3;
+  margin: 0 0 10px;
+}
+
+.ai-report-summary {
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text-body);
+  margin: 0 0 12px;
+  max-width: 720px;
+}
+
+.ai-report-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.ai-report-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(91, 79, 212, 0.1);
+  color: var(--accent-active);
+  font-weight: 600;
+}
+
+.ai-report-badge--ai {
+  background: rgba(197, 241, 53, 0.35);
+  color: #3d5200;
+}
+
+.ai-report-time {
+  font-variant-numeric: tabular-nums;
+}
+
+.ai-report-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.ai-report-section {
+  background: rgba(91, 79, 212, 0.04);
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(91, 79, 212, 0.12);
+  padding: 14px 14px 12px;
+}
+
+.ai-report-section--strengths {
+  background: rgba(197, 241, 53, 0.12);
+  border-color: rgba(120, 150, 30, 0.2);
+}
+
+.ai-report-section--suggestions {
+  margin-bottom: 14px;
+  background: rgba(91, 79, 212, 0.06);
+}
+
+.ai-report-section--next {
+  background: rgba(45, 43, 85, 0.04);
+}
+
+.ai-report-section-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-dark);
+  margin: 0 0 10px;
+  letter-spacing: 0.02em;
+}
+
+.ai-report-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ai-report-list li {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-body);
+}
+
+.ai-report-list--checks {
+  list-style: none;
+  padding-left: 0;
+}
+
+.ai-report-list--checks li {
+  padding-left: 18px;
+  position: relative;
+}
+
+.ai-report-list--checks li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.45em;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent-active);
+}
+
+.ai-report-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ai-report-suggestion {
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: white;
+  border: 1px solid var(--border-light);
+}
+
+.ai-report-suggestion-focus {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-dark);
+  margin-bottom: 6px;
+}
+
+.ai-report-suggestion-detail {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-body);
+  margin: 0;
+}
+
+.ai-report-steps {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ai-report-steps li {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-body);
+}
+
 .subtask-list {
   display: flex;
   flex-direction: column;
@@ -2665,12 +2843,23 @@ body[data-theme='dark'] .message-row,
 body[data-theme='dark'] .message-intro,
 body[data-theme='dark'] .smart-priority-banner,
 body[data-theme='dark'] .insight-banner,
+body[data-theme='dark'] .ai-report-card,
 body[data-theme='dark'] .reflection-card,
 body[data-theme='dark'] .reflection-popup-card,
 body[data-theme='dark'] .auth-card,
 body[data-theme='dark'] .error-card,
 body[data-theme='dark'] .finish-popup-card {
   background: var(--surface-base);
+}
+
+body[data-theme='dark'] .ai-report-suggestion {
+  background: var(--surface-soft);
+  border-color: var(--border-light);
+}
+
+body[data-theme='dark'] .ai-report-badge--ai {
+  background: rgba(197, 241, 53, 0.18);
+  color: #d4f070;
 }
 
 body[data-theme='dark'] .game-stat,

@@ -1,8 +1,14 @@
 from flask import Blueprint, render_template
 from flask_login import login_required, current_user
-from models import db, Task, ActivityLog, Habit, HabitEntry
+from models import db, Task, ActivityLog, Habit, HabitEntry, Goal
 from ml_model import train_model, recommend_schedule
-from insights import compute_gamification, detect_overload, summarize_habits, weekly_reflection
+from insights import (
+    compute_gamification,
+    detect_overload,
+    progress_behavior_report,
+    summarize_habits,
+    weekly_reflection,
+)
 
 ai_bp = Blueprint("ai", __name__)
 
@@ -22,8 +28,16 @@ def ai_recommendations():
     logs = ActivityLog.query.filter_by(user_id=current_user.id).all()
     habits = Habit.query.filter_by(user_id=current_user.id).all()
     habit_entries = HabitEntry.query.filter_by(user_id=current_user.id).all()
+    goals = Goal.query.filter_by(user_id=current_user.id).all()
     habit_summaries = summarize_habits(habits, habit_entries)
     overload_days, burnout_warning = detect_overload(all_tasks)
+    progress_report = progress_behavior_report(
+        all_tasks,
+        logs,
+        habit_summaries,
+        goals,
+        user_name=getattr(current_user, "name", None),
+    )
 
     return render_template(
         "recommendations.html",
@@ -31,6 +45,7 @@ def ai_recommendations():
         recommendations=recs,
         burnout_warning=burnout_warning,
         overload_days=overload_days,
+        progress_report=progress_report,
         weekly_reflection=weekly_reflection(
             all_tasks,
             logs,

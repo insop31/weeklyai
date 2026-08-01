@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import random
+import re
 from urllib import error, request
 
 from config import load_environment
@@ -295,7 +296,7 @@ def build_user_notifications(tasks, logs, habits, habit_entries, goals, calendar
     return notifications[:18]
 
 
-def compute_gamification(tasks, habit_summaries, user_name=None):
+def compute_gamification(tasks, habit_summaries, user_name=None, with_ai_quests=True):
     completed_tasks = sum(1 for task in tasks if getattr(task, "status", "") == "Completed")
     habit_points = sum(item["streak"] * 2 for item in habit_summaries)
     points = completed_tasks * 10 + habit_points
@@ -399,7 +400,10 @@ def compute_gamification(tasks, habit_summaries, user_name=None):
     if not badges:
         badges.append("Getting Started")
 
-    ai_quests = generate_game_quests(tasks, habit_summaries, user_name=user_name)
+    if with_ai_quests:
+        ai_quests = generate_game_quests(tasks, habit_summaries, user_name=user_name)
+    else:
+        ai_quests = _fallback_game_quests(tasks, habit_summaries)
 
     return {
         "points": points,
@@ -604,63 +608,40 @@ def _generate_ai_weekly_reflection(tasks, logs, habit_summaries, user_name=None,
     context = _build_weekly_reflection_context(
         tasks, logs, habit_summaries, user_name=user_name, now=now
     )
-    payload = {
-        "model": settings["model"],
-        "input": [
-            {
-                "role": "system",
-                "content": (
-                    "You write short weekly reflection summaries for a productivity dashboard. "
-                    "Keep the tone warm, specific, and practical. "
-                    "Respond with valid JSON only."
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"Write a weekly reflection in a {creative_direction} tone.\n"
-                    "Return JSON with exactly one key: lines.\n"
-                    "Constraints:\n"
-                    "- lines must be an array of 3 or 4 strings.\n"
-                    "- Each line should be under 140 characters.\n"
-                    "- Include one performance insight, one habit insight, and one practical next-step suggestion.\n"
-                    "- Mention the most important bottleneck or priority shift from the data.\n"
-                    "- Keep each line concrete and focused, not generic encouragement.\n"
-                    "- Avoid markdown, emojis, hashtags, and quotation marks.\n"
-                    "- Make the reflection feel specific to this week's data.\n\n"
-                    f"{context}\n"
-                    f"Variation seed: {random.randint(1000, 999999)}"
-                ),
-            },
-        ],
-        "temperature": 0.9,
-        "max_output_tokens": 220,
-    }
-
-    req = request.Request(
-        f"{settings['base_url']}/responses",
-        data=json.dumps(payload).encode("utf-8"),
-        headers=_build_ai_headers(settings["api_key"], settings["provider"]),
-        method="POST",
+    system_content = (
+        "You write short weekly reflection summaries for a productivity dashboard. "
+        "Keep the tone warm, specific, and practical. "
+        "Respond with valid JSON only."
+    )
+    user_content = (
+        f"Write a weekly reflection in a {creative_direction} tone.\n"
+        "Return JSON with exactly one key: lines.\n"
+        "Constraints:\n"
+        "- lines must be an array of 3 or 4 strings.\n"
+        "- Each line should be under 140 characters.\n"
+        "- Include one performance insight, one habit insight, and one practical next-step suggestion.\n"
+        "- Mention the most important bottleneck or priority shift from the data.\n"
+        "- Keep each line concrete and focused, not generic encouragement.\n"
+        "- Avoid markdown, emojis, hashtags, and quotation marks.\n"
+        "- Make the reflection feel specific to this week's data.\n\n"
+        f"{context}\n"
+        f"Variation seed: {random.randint(1000, 999999)}"
     )
 
-    try:
-        with request.urlopen(req, timeout=8) as response:
-            data = json.loads(response.read().decode("utf-8"))
-    except error.HTTPError as exc:
-        logger.warning("Weekly reflection AI request failed with HTTP %s", exc.code)
-        return None
-    except (error.URLError, TimeoutError, json.JSONDecodeError) as exc:
-        logger.warning("Weekly reflection AI request failed: %s", exc)
-        return None
-
-    parsed = _extract_response_text(data)
+    parsed = _ai_chat_completions(
+        settings,
+        system_content,
+        user_content,
+        temperature=0.9,
+        max_tokens=320,
+        timeout=25,
+        json_mode=(settings["provider"] == "openai"),
+    )
     if not parsed:
         return None
 
-    try:
-        content = json.loads(parsed)
-    except json.JSONDecodeError:
+    content = _parse_model_json_text(parsed)
+    if not isinstance(content, dict):
         return None
 
     lines = content.get("lines")
@@ -700,63 +681,40 @@ def _generate_ai_game_quests(tasks, habit_summaries, user_name=None, now=None):
         settings["base_url"],
     )
     context = _build_game_quest_context(tasks, habit_summaries, user_name=user_name, now=now)
-    payload = {
-        "model": settings["model"],
-        "input": [
-            {
-                "role": "system",
-                "content": (
-                    "You create short gamified productivity quests for a planner dashboard. "
-                    "The quests should feel playful, specific, and actionable. "
-                    "Respond with valid JSON only."
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    "Return JSON with exactly one key: quests.\n"
-                    "quests must be an array of 3 objects.\n"
-                    "Each object must have exactly these keys: title, category, score, status.\n"
-                    "Constraints:\n"
-                    "- title: under 70 characters and tied to the user's actual tasks or habits.\n"
-                    "- category: 1 to 3 words.\n"
-                    "- score: integer from 40 to 99.\n"
-                    "- status: 1 to 3 words like Bonus Quest or Boss Fight.\n"
-                    "- Make them feel like game quests, not generic todos.\n"
-                    "- Avoid markdown, emojis, quotation marks inside fields, and fantasy nonsense.\n\n"
-                    f"{context}\n"
-                    f"Variation seed: {random.randint(1000, 999999)}"
-                ),
-            },
-        ],
-        "temperature": 0.9,
-        "max_output_tokens": 260,
-    }
-
-    req = request.Request(
-        f"{settings['base_url']}/responses",
-        data=json.dumps(payload).encode("utf-8"),
-        headers=_build_ai_headers(settings["api_key"], settings["provider"]),
-        method="POST",
+    system_content = (
+        "You create short gamified productivity quests for a planner dashboard. "
+        "The quests should feel playful, specific, and actionable. "
+        "Respond with valid JSON only."
+    )
+    user_content = (
+        "Return JSON with exactly one key: quests.\n"
+        "quests must be an array of 3 objects.\n"
+        "Each object must have exactly these keys: title, category, score, status.\n"
+        "Constraints:\n"
+        "- title: under 70 characters and tied to the user's actual tasks or habits.\n"
+        "- category: 1 to 3 words.\n"
+        "- score: integer from 40 to 99.\n"
+        "- status: 1 to 3 words like Bonus Quest or Boss Fight.\n"
+        "- Make them feel like game quests, not generic todos.\n"
+        "- Avoid markdown, emojis, quotation marks inside fields, and fantasy nonsense.\n\n"
+        f"{context}\n"
+        f"Variation seed: {random.randint(1000, 999999)}"
     )
 
-    try:
-        with request.urlopen(req, timeout=8) as response:
-            data = json.loads(response.read().decode("utf-8"))
-    except error.HTTPError as exc:
-        logger.warning("Game quests AI request failed with HTTP %s", exc.code)
-        return None
-    except (error.URLError, TimeoutError, json.JSONDecodeError) as exc:
-        logger.warning("Game quests AI request failed: %s", exc)
-        return None
-
-    parsed = _extract_response_text(data)
+    parsed = _ai_chat_completions(
+        settings,
+        system_content,
+        user_content,
+        temperature=0.9,
+        max_tokens=450,
+        timeout=25,
+        json_mode=(settings["provider"] == "openai"),
+    )
     if not parsed:
         return None
 
-    try:
-        content = json.loads(parsed)
-    except json.JSONDecodeError:
+    content = _parse_model_json_text(parsed)
+    if not isinstance(content, dict):
         return None
 
     quests = content.get("quests")
@@ -886,63 +844,40 @@ def _generate_ai_daily_intention(tasks, logs, habit_summaries, user_name=None, n
     ])
 
     context = _build_intention_context(tasks, logs, habit_summaries, user_name=user_name, now=now)
-    payload = {
-        "model": settings["model"],
-        "input": [
-            {
-                "role": "system",
-                "content": (
-                    "You write short daily intention cards for a productivity dashboard. "
-                    "Keep the tone warm, clear, and emotionally intelligent. "
-                    "Respond with valid JSON only."
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"Write a fresh daily intention in a {creative_direction} tone.\n"
-                    "Return JSON with exactly these keys: badge, focus, title, body, action.\n"
-                    "Constraints:\n"
-                    "- badge: 2 to 4 words.\n"
-                    "- focus: 2 to 4 words.\n"
-                    "- title: under 70 characters.\n"
-                    "- body: 1 or 2 sentences, under 220 characters.\n"
-                    "- action: 2 to 4 words.\n"
-                    "- Avoid hashtags, markdown, emojis, and quotation marks.\n"
-                    "- Make it feel unique for this request.\n\n"
-                    f"{context}\n"
-                    f"Variation seed: {random.randint(1000, 999999)}"
-                ),
-            },
-        ],
-        "temperature": 1,
-        "max_output_tokens": 180,
-    }
-
-    req = request.Request(
-        f"{settings['base_url']}/responses",
-        data=json.dumps(payload).encode("utf-8"),
-        headers=_build_ai_headers(settings["api_key"], settings["provider"]),
-        method="POST",
+    system_content = (
+        "You write short daily intention cards for a productivity dashboard. "
+        "Keep the tone warm, clear, and emotionally intelligent. "
+        "Respond with valid JSON only."
+    )
+    user_content = (
+        f"Write a fresh daily intention in a {creative_direction} tone.\n"
+        "Return JSON with exactly these keys: badge, focus, title, body, action.\n"
+        "Constraints:\n"
+        "- badge: 2 to 4 words.\n"
+        "- focus: 2 to 4 words.\n"
+        "- title: under 70 characters.\n"
+        "- body: 1 or 2 sentences, under 220 characters.\n"
+        "- action: 2 to 4 words.\n"
+        "- Avoid hashtags, markdown, emojis, and quotation marks.\n"
+        "- Make it feel unique for this request.\n\n"
+        f"{context}\n"
+        f"Variation seed: {random.randint(1000, 999999)}"
     )
 
-    try:
-        with request.urlopen(req, timeout=8) as response:
-            data = json.loads(response.read().decode("utf-8"))
-    except error.HTTPError as exc:
-        logger.warning("Daily intention AI request failed with HTTP %s", exc.code)
-        return None
-    except (error.URLError, TimeoutError, json.JSONDecodeError) as exc:
-        logger.warning("Daily intention AI request failed: %s", exc)
-        return None
-
-    parsed = _extract_response_text(data)
+    parsed = _ai_chat_completions(
+        settings,
+        system_content,
+        user_content,
+        temperature=1,
+        max_tokens=280,
+        timeout=25,
+        json_mode=(settings["provider"] == "openai"),
+    )
     if not parsed:
         return None
 
-    try:
-        content = json.loads(parsed)
-    except json.JSONDecodeError:
+    content = _parse_model_json_text(parsed)
+    if not isinstance(content, dict):
         return None
 
     required_fields = {"badge", "focus", "title", "body", "action"}
@@ -1049,27 +984,402 @@ def _build_game_quest_context(tasks, habit_summaries, user_name=None, now=None):
     ])
 
 
-def _extract_response_text(data):
-    if isinstance(data, dict):
-        if isinstance(data.get("output_text"), str) and data["output_text"].strip():
-            return data["output_text"].strip()
+def progress_behavior_report(tasks, logs, habit_summaries, goals, user_name=None, now=None):
+    now = now or datetime.utcnow()
+    ai_report = _generate_ai_progress_report(
+        tasks, logs, habit_summaries, goals, user_name=user_name, now=now
+    )
+    if ai_report:
+        logger.info("Progress and behavior report generated via AI.")
+        return ai_report
+    logger.info("Progress and behavior report fell back to local summary.")
+    return _fallback_progress_report(tasks, logs, habit_summaries, goals, user_name=user_name, now=now)
 
-        for item in data.get("output", []):
-            if item.get("type") != "message":
-                continue
-            for content in item.get("content", []):
-                if content.get("type") != "output_text":
-                    continue
-                text = content.get("text")
-                if isinstance(text, str) and text.strip():
-                    return text.strip()
 
-        for item in data.get("output", []):
-            for content in item.get("content", []):
-                text = content.get("text")
-                if isinstance(text, str) and text.strip():
-                    return text.strip()
-    return None
+def _fallback_progress_report(tasks, logs, habit_summaries, goals, user_name=None, now=None):
+    now = now or datetime.utcnow()
+    today = now.date()
+    week_start = today - timedelta(days=today.weekday())
+    total = len(tasks)
+    by_status = Counter(getattr(t, "status", "Pending") or "Pending" for t in tasks)
+    completed = by_status.get("Completed", 0)
+    missed = by_status.get("Missed", 0)
+    pending = by_status.get("Pending", 0) + by_status.get("In Progress", 0)
+    rate = int((completed / total) * 100) if total else 0
+    best_day = most_productive_day(logs)
+    avg_habit = (
+        int(sum(item["percentage"] for item in habit_summaries) / len(habit_summaries))
+        if habit_summaries
+        else 0
+    )
+    goal_progress = compute_goal_progress(goals, tasks, habit_summaries)
+    overload_days, burnout_warning = detect_overload(tasks)
+    cat_hours = compute_category_hours(tasks)
+    top_cat = max(cat_hours, key=cat_hours.get, default=None)
+    gamification = compute_gamification(
+        tasks, habit_summaries, user_name=user_name, with_ai_quests=False
+    )
+
+    week_logs = sum(
+        1 for log in logs if getattr(log, "date", None) and log.date >= week_start
+    )
+    strongest = max(habit_summaries, key=lambda item: item["streak"], default=None)
+    weakest = min(habit_summaries, key=lambda item: item["percentage"], default=None) if habit_summaries else None
+
+    headline = f"Your week shows a {rate}% task completion rate with {pending} items still in motion."
+    exec_lines = [
+        f"You have {total} tracked tasks: {completed} completed, {missed} missed, and {pending} still active.",
+        f"Activity logs show {week_logs} completion records this calendar week; {best_day} stands out as your strongest rhythm.",
+    ]
+    if avg_habit:
+        exec_lines.append(f"Habits are averaging {avg_habit}% consistency across the week.")
+    executive_summary = " ".join(exec_lines)
+
+    progress_analysis = [
+        f"Completion share is {rate}%, which {'signals steady follow-through' if rate >= 50 else 'suggests room to tighten execution on planned work'}.",
+        f"Workload spreads across categories with the most estimated hours in {top_cat or 'mixed areas'}: {', '.join(f'{k} ({v:.1f}h)' for k, v in sorted(cat_hours.items(), key=lambda x: -x[1])[:4]) or 'no breakdown yet'}.",
+        f"You are at level {gamification['level']} with {gamification['points']} XP in the {gamification['league']['name']}, reflecting {'ongoing' if completed else 'early'} engagement with tasks and habits.",
+    ]
+    if missed:
+        progress_analysis.append(
+            f"{missed} missed task(s) indicate scheduling or energy mismatches worth addressing with smaller blocks or clearer deadlines."
+        )
+
+    behavior_patterns = [
+        f"Logging pattern: most completions cluster around {best_day}.",
+    ]
+    hour_counts = Counter(log.hour_of_day for log in logs if getattr(log, "hour_of_day", None) is not None)
+    if hour_counts:
+        peak_hour = hour_counts.most_common(1)[0][0]
+        behavior_patterns.append(f"Peak completion hours lean toward {peak_hour}:00 as a frequent finish window.")
+    if strongest:
+        behavior_patterns.append(
+            f"Habit momentum concentrates on {strongest['habit'].title} with a {strongest['streak']}-day streak."
+        )
+    if weakest and weakest["percentage"] < 50:
+        behavior_patterns.append(
+            f"{weakest['habit'].title} is trailing at {weakest['percentage']}% this week, suggesting friction or deprioritization."
+        )
+    if overload_days:
+        behavior_patterns.append(
+            "Several days carry heavy estimated load, which often correlates with deferrals or rushed work."
+        )
+
+    strengths = []
+    if rate >= 40:
+        strengths.append("You are converting a meaningful share of planned work into completed work.")
+    if strongest and strongest["streak"] >= 3:
+        strengths.append(f"Consistency on {strongest['habit'].title} shows you can sustain routines when they matter.")
+    if week_logs >= 5:
+        strengths.append("Regular activity logging gives you a reliable signal for coaching and scheduling.")
+    if not strengths:
+        strengths.append("You are actively using the system, which is the first step toward measurable improvement.")
+
+    improvement_suggestions = [
+        {
+            "focus": "Protect focus windows",
+            "detail": f"Schedule your two hardest tasks in the hours where you most often complete work, leaning on {best_day} if possible.",
+        },
+        {
+            "focus": "Shrink tasks that stall",
+            "detail": "Break any pending item over three estimated hours into 45 to 90 minute blocks with clear done criteria.",
+        },
+    ]
+    if missed:
+        improvement_suggestions.append({
+            "focus": "Recover missed commitments",
+            "detail": "For each missed task, either reschedule with a realistic slot or downgrade scope so the next attempt finishes cleanly.",
+        })
+    if weakest and not weakest["completed_today"]:
+        improvement_suggestions.append({
+            "focus": "Stabilize the weakest habit",
+            "detail": f"Pair {weakest['habit'].title} with an existing routine and use a two-minute minimum to preserve the streak.",
+        })
+    if burnout_warning:
+        improvement_suggestions.append({
+            "focus": "Reduce overload days",
+            "detail": burnout_warning,
+        })
+
+    for item in goal_progress[:5]:
+        goal = item["goal"]
+        tgt = max(getattr(goal, "target_value", 1) or 1, 1)
+        if item["percentage"] < 80:
+            improvement_suggestions.append({
+                "focus": f"Advance goal: {goal.title}",
+                "detail": (
+                    f"Your {goal.period.lower()} target is {item['current']}/{tgt}. "
+                    "Add one concrete task this week that moves this metric without overloading your calendar."
+                ),
+            })
+            break
+
+    _pad_suggestions = [
+        {
+            "focus": "Review priorities weekly",
+            "detail": "Spend ten minutes each Sunday ranking pending work so Monday starts with a single clear focus.",
+        },
+        {
+            "focus": "Shorten the planning loop",
+            "detail": "Each evening, pick three outcomes for the next day and defer the rest until those ship.",
+        },
+    ]
+    for _pad in _pad_suggestions:
+        if len(improvement_suggestions) >= 5:
+            break
+        improvement_suggestions.append(_pad)
+
+    top_pending = sorted(
+        [t for t in tasks if getattr(t, "status", "") != "Completed"],
+        key=compute_priority_score,
+        reverse=True,
+    )[:3]
+    next_steps = [
+        f"Start your next block with {top_pending[0].title}." if top_pending else "Define one must-do task with a deadline in the next 48 hours.",
+        "Log each completion so trends and coaching stay accurate.",
+    ]
+    if habit_summaries:
+        next_steps.append(
+            "Pick the habit with the lowest weekly percentage and schedule a five-minute version of it tomorrow."
+        )
+    else:
+        next_steps.append("Add one habit you want to track so consistency becomes visible.")
+    next_steps.append(
+        "Skim overdue and missed items and either reschedule or reduce scope for each."
+    )
+
+    return {
+        "headline": headline,
+        "executive_summary": executive_summary,
+        "progress_analysis": progress_analysis,
+        "behavior_patterns": behavior_patterns,
+        "strengths": strengths,
+        "improvement_suggestions": improvement_suggestions[:8],
+        "next_steps": next_steps[:6],
+        "source": "fallback",
+        "generated_at": now.isoformat(),
+    }
+
+
+def _clean_report_text(text, max_len):
+    if not text:
+        return ""
+    cleaned = " ".join(text.split()).strip()
+    if len(cleaned) > max_len:
+        cleaned = cleaned[: max_len - 1].rsplit(" ", 1)[0] + "..."
+    return cleaned
+
+
+def _build_progress_report_context(tasks, logs, habit_summaries, goals, user_name=None, now=None):
+    now = now or datetime.utcnow()
+    today = now.date()
+    week_start = today - timedelta(days=today.weekday())
+    by_status = Counter(getattr(t, "status", "Pending") or "Pending" for t in tasks)
+    goal_progress = compute_goal_progress(goals, tasks, habit_summaries)
+    overload_days, burnout_warning = detect_overload(tasks)
+    cat_hours = compute_category_hours(tasks)
+    gamification = compute_gamification(
+        tasks, habit_summaries, user_name=user_name, with_ai_quests=False
+    )
+    week_logs = sum(
+        1 for log in logs if getattr(log, "date", None) and log.date >= week_start
+    )
+    hour_counts = Counter(
+        log.hour_of_day for log in logs if getattr(log, "hour_of_day", None) is not None
+    )
+    peak_hours = ", ".join(str(h) for h, _ in hour_counts.most_common(4)) if hour_counts else "unknown"
+
+    pending_high = [
+        f"{t.title} [{t.priority}, score {compute_priority_score(t)}]"
+        for t in sorted(
+            [
+                x
+                for x in tasks
+                if getattr(x, "status", "") in {"Pending", "In Progress", "Missed"}
+            ],
+            key=compute_priority_score,
+            reverse=True,
+        )[:6]
+    ]
+
+    goal_lines = []
+    for item in goal_progress[:6]:
+        goal = item["goal"]
+        goal_lines.append(
+            f"{goal.title} ({goal.period} target {goal.target_value}): "
+            f"current {item['current']} ({item['percentage']}%)"
+        )
+
+    labels, series_vals = build_progress_series(logs, weeks=4)
+
+    return "\n".join([
+        f"User: {user_name or 'Planner user'}",
+        f"Report date: {now.strftime('%A, %B %d %Y')}",
+        f"Calendar week starting: {week_start.isoformat()}",
+        f"Task counts by status: {dict(by_status)}",
+        f"Total tasks: {len(tasks)}",
+        f"Completion logs this week: {week_logs}",
+        f"Most productive weekday (from history): {most_productive_day(logs)}",
+        f"Common completion hours (0-23): {peak_hours}",
+        f"Estimated hours by category: {dict(sorted(cat_hours.items(), key=lambda x: -x[1]))}",
+        f"Overload days (pending work, hours>=8): {overload_days}",
+        f"Burnout or load note: {burnout_warning or 'None'}",
+        f"XP: {gamification['points']}, level {gamification['level']}, league: {gamification['league']['name']}",
+        "Habits: "
+        + (
+            ", ".join(
+                f"{item['habit'].title} (streak {item['streak']}, week {item['percentage']}%"
+                f", today {'yes' if item['completed_today'] else 'no'})"
+                for item in habit_summaries[:8]
+            )
+            or "None"
+        ),
+        "Goals: " + ("; ".join(goal_lines) or "None"),
+        "Top pending or active tasks: " + (", ".join(pending_high) or "None"),
+        "Completion trend last "
+        f"{len(labels)} weeks (label -> count): "
+        + ", ".join(f"{lbl}:{val}" for lbl, val in zip(labels, series_vals)),
+    ])
+
+
+def _normalize_progress_report_payload(content, now):
+    if not isinstance(content, dict):
+        return None
+    headline = _clean_report_text(str(content.get("headline", "")), 200)
+    executive_summary = _clean_report_text(str(content.get("executive_summary", "")), 1200)
+
+    def clean_str_list(key, max_items, max_len=500):
+        raw = content.get(key)
+        if not isinstance(raw, list):
+            return []
+        out = []
+        for item in raw[:max_items]:
+            if isinstance(item, str):
+                text = _clean_report_text(item, max_len)
+                if text:
+                    out.append(text)
+        return out
+
+    progress_analysis = clean_str_list("progress_analysis", 6, 600)
+    behavior_patterns = clean_str_list("behavior_patterns", 6, 450)
+    strengths = clean_str_list("strengths", 5, 400)
+
+    improvement_suggestions = []
+    raw_sug = content.get("improvement_suggestions")
+    if isinstance(raw_sug, list):
+        for item in raw_sug[:8]:
+            if isinstance(item, dict):
+                focus_raw = (
+                    item.get("focus")
+                    or item.get("Focus")
+                    or item.get("title")
+                    or item.get("Title")
+                    or item.get("heading")
+                )
+                detail_raw = (
+                    item.get("detail")
+                    or item.get("Detail")
+                    or item.get("body")
+                    or item.get("Body")
+                    or item.get("description")
+                    or item.get("advice")
+                )
+                focus = _clean_report_text(str(focus_raw or ""), 120)
+                detail = _clean_report_text(str(detail_raw or ""), 550)
+                if focus and detail:
+                    improvement_suggestions.append({"focus": focus, "detail": detail})
+            elif isinstance(item, str):
+                text = _clean_report_text(item, 600)
+                if text:
+                    improvement_suggestions.append({"focus": "Suggestion", "detail": text})
+
+    next_steps = clean_str_list("next_steps", 6, 320)
+
+    if not headline or len(progress_analysis) < 1 or len(improvement_suggestions) < 1:
+        return None
+
+    return {
+        "headline": headline,
+        "executive_summary": executive_summary or headline,
+        "progress_analysis": progress_analysis,
+        "behavior_patterns": behavior_patterns,
+        "strengths": strengths,
+        "improvement_suggestions": improvement_suggestions,
+        "next_steps": next_steps,
+        "source": "ai",
+        "generated_at": now.isoformat(),
+    }
+
+
+def _generate_ai_progress_report(tasks, logs, habit_summaries, goals, user_name=None, now=None):
+    settings = _resolve_ai_settings()
+    if not settings:
+        logger.info("Progress report AI disabled: no provider settings found.")
+        return None
+
+    now = now or datetime.utcnow()
+    context = _build_progress_report_context(
+        tasks, logs, habit_summaries, goals, user_name=user_name, now=now
+    )
+    creative_direction = random.choice([
+        "professional coach",
+        "empathetic analyst",
+        "clear strategist",
+        "supportive mentor",
+    ])
+    system_content = (
+        "You produce detailed productivity coaching reports as JSON only. "
+        "Ground every claim in the provided metrics; do not invent tasks or numbers not implied by the data. "
+        "Be specific, nuanced, and actionable. No markdown, emojis, or hashtags."
+    )
+    user_content = (
+        f"Write an elaborate progress and behavior report in the voice of a {creative_direction}.\n"
+        "Return JSON with exactly these keys:\n"
+        "- headline: one compelling line, under 180 characters.\n"
+        "- executive_summary: 2 to 4 sentences synthesizing the user's current trajectory.\n"
+        "- progress_analysis: array of 4 to 6 strings; each 1 to 3 sentences on task completion, workload, goals, and momentum.\n"
+        "- behavior_patterns: array of 4 to 6 strings describing scheduling, consistency, risk patterns (missed tasks, overload), and habit signals.\n"
+        "- strengths: array of 3 to 5 short strings on what is working.\n"
+        "- improvement_suggestions: array of 5 to 7 objects, each with keys focus (short label) and detail (2 to 4 sentences with concrete advice).\n"
+        "- next_steps: array of 4 to 6 very specific actions for the next few days.\n"
+        "Rules:\n"
+        "- Refer to real titles and categories from the data when relevant.\n"
+        "- Include at least two suggestions that directly address weaknesses shown in the data.\n"
+        "- Avoid generic platitudes; tie guidance to the metrics.\n"
+        "- No quotation marks inside string values.\n\n"
+        f"{context}\n"
+        f"Variation seed: {random.randint(1000, 999999)}"
+    )
+
+    parsed = _ai_chat_completions(
+        settings,
+        system_content,
+        user_content,
+        temperature=0.75,
+        max_tokens=4096,
+        timeout=90,
+        json_mode=(settings["provider"] == "openai"),
+    )
+    if not parsed:
+        return None
+
+    content = _parse_model_json_text(parsed)
+    if not isinstance(content, dict):
+        logger.warning("Progress report: model output was not valid JSON.")
+        return None
+
+    normalized = _normalize_progress_report_payload(content, now)
+    if not normalized:
+        logger.warning(
+            "Progress report AI response failed validation (headline=%r analysis=%s suggestions=%s).",
+            content.get("headline"),
+            len(content.get("progress_analysis") or []) if isinstance(content.get("progress_analysis"), list) else "n/a",
+            len(content.get("improvement_suggestions") or []) if isinstance(content.get("improvement_suggestions"), list) else "n/a",
+        )
+        return None
+
+    logger.info("Progress report AI response accepted.")
+    return normalized
 
 
 def _build_task_notifications(tasks, now):
@@ -1300,6 +1610,107 @@ def _end_of_week(today):
 def _end_of_month(today):
     next_month = today.replace(day=28) + timedelta(days=4)
     return next_month - timedelta(days=next_month.day)
+
+
+def _extract_chat_completion_text(data):
+    if not isinstance(data, dict):
+        return None
+    choices = data.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return None
+    ch0 = choices[0]
+    if not isinstance(ch0, dict):
+        return None
+    msg = ch0.get("message")
+    if isinstance(msg, dict):
+        content = msg.get("content")
+        if isinstance(content, str) and content.strip():
+            return content.strip()
+        if isinstance(content, list):
+            parts = []
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
+                if block.get("type") == "text" and isinstance(block.get("text"), str):
+                    parts.append(block["text"])
+                elif isinstance(block.get("text"), str):
+                    parts.append(block["text"])
+            joined = "".join(parts).strip()
+            if joined:
+                return joined
+    text = ch0.get("text")
+    if isinstance(text, str) and text.strip():
+        return text.strip()
+    return None
+
+
+def _parse_model_json_text(text):
+    if not text or not isinstance(text, str):
+        return None
+    s = text.strip()
+    if s.startswith("```"):
+        s = re.sub(r"^```(?:json)?\s*", "", s, flags=re.IGNORECASE)
+        s = re.sub(r"\s*```\s*$", "", s)
+    try:
+        return json.loads(s)
+    except json.JSONDecodeError:
+        pass
+    start = s.find("{")
+    end = s.rfind("}")
+    if start >= 0 and end > start:
+        try:
+            return json.loads(s[start : end + 1])
+        except json.JSONDecodeError:
+            return None
+    return None
+
+
+def _ai_chat_completions(
+    settings,
+    system_content,
+    user_content,
+    temperature,
+    max_tokens,
+    timeout,
+    json_mode=False,
+):
+    """POST /v1/chat/completions (OpenAI, OpenRouter, and compatible gateways)."""
+    url = f"{settings['base_url']}/chat/completions"
+    payload = {
+        "model": settings["model"],
+        "messages": [
+            {"role": "system", "content": system_content},
+            {"role": "user", "content": user_content},
+        ],
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    if json_mode and settings["provider"] == "openai":
+        payload["response_format"] = {"type": "json_object"}
+
+    req = request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers=_build_ai_headers(settings["api_key"], settings["provider"]),
+        method="POST",
+    )
+    try:
+        with request.urlopen(req, timeout=timeout) as response:
+            raw = response.read().decode("utf-8")
+            data = json.loads(raw)
+    except error.HTTPError as exc:
+        err_body = ""
+        try:
+            err_body = exc.read().decode("utf-8", errors="replace")[:900]
+        except Exception:
+            pass
+        logger.warning("AI chat completion HTTP %s: %s", exc.code, err_body)
+        return None
+    except (error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        logger.warning("AI chat completion failed: %s", exc)
+        return None
+
+    return _extract_chat_completion_text(data)
 
 
 def _resolve_ai_settings():
